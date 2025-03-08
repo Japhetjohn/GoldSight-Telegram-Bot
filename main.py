@@ -2,9 +2,6 @@
 import asyncio
 import requests
 from aiogram import Bot, Dispatcher, types
-from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
 from dotenv import load_dotenv
 import os
 from database import init_db, add_user, approve_vip, get_user, check_subscriptions
@@ -17,132 +14,174 @@ VIP_CHANNEL = int(os.getenv("VIP_CHANNEL_ID"))
 ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_KEY")
 
 bot = Bot(token=API_TOKEN)
-storage = MemoryStorage()
-dp = Dispatcher(bot, storage=storage)
+dp = Dispatcher()
 
-class SubscribeState(StatesGroup):
-    plan = State()
-    proof = State()
+# Simple state management
+class SubscribeState:
+    PLAN = "plan"
+    PROOF = "proof"
 
-@dp.message_handler(commands=['start'])
-async def send_welcome(message: types.Message):
+user_states = {}
+
+@dp.message()
+async def handle_message(message: types.Message):
     user_id = message.from_user.id
-    referral = message.get_args()
-    ref_code = add_user(user_id, referral)
-    welcome_msg = (
-        "Welcome to GoldSightBot, Japhet! 📈\n"
-        "/subscribe - Join VIP\n"
-        "/referral - Earn 10%\n"
-        "Help? @Goldsighthelpbot"
-    )
-    await message.reply(welcome_msg)
+    text = message.text.lower()
+    print(f"Main Bot received: {text}")  # Debug log
 
-@dp.message_handler(commands=['referral'])
-async def send_referral(message: types.Message):
-    user_id = message.from_user.id
-    user = get_user(user_id)
-    if user:
-        await message.reply(f"Referral link: t.me/GoldSightBot?start={user[2]}\nEarn 10% per paid referral!")
-    else:
-        await message.reply("Run /start first!")
+    if text.startswith("/start"):
+        referral = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else None
+        ref_code = add_user(user_id, referral)
+        welcome_msg = (
+            "Welcome to GoldSightBot, Japhet! 📈\n"
+            "/subscribe - Join VIP\n"
+            "/referral - Earn 10%\n"
+            "Help? @Goldsighthelpbot"
+        )
+        await message.reply(welcome_msg)
 
-@dp.message_handler(commands=['subscribe'])
-async def subscribe_start(message: types.Message):
-    keyboard = types.InlineKeyboardMarkup()
-    keyboard.add(types.InlineKeyboardButton("$30 Bi-Weekly", callback_data="plan_biweekly"))
-    keyboard.add(types.InlineKeyboardButton("$50 Monthly", callback_data="plan_monthly"))
-    await message.reply("Pick a plan:", reply_markup=keyboard)
+    elif text.startswith("/referral"):
+        user = get_user(user_id)
+        if user:
+            await message.reply(f"Referral link: t.me/GoldSightBot?start={user[2]}\nEarn 10% per paid referral!")
+        else:
+            await message.reply("Run /start first!")
 
-@dp.callback_query_handler(lambda c: c.data.startswith("plan_"))
-async def process_plan(callback: types.CallbackQuery, state: FSMContext):
-    plan = callback.data.split("_")[1]
-    await bot.answer_callback_query(callback.id)
-    payment_msg = (
-        "Pay here:\n"
-        "USDT (SOL): 7ryDkprn33twExM1ScdfStcuxTrdDxuJXedTZZH66gAZ\n"
-        "USDT (BSC): 0x59b733f5cc3f2b48c703aef91bd9a531f39d60a0\n"
-        "USDT (TRC20): TH6W67eY7XtQusdrWGProevkXsQV6C9iC8\n"
-        "USDT (ETH): 0x59b733f5cc3f2b48c703aef91bd9a531f39d60a0\n"
-        "USDT (TON): 0x59b733f5cc3f2b48c703aef91bd9a531f39d60a0\n"
-        "Send proof here (screenshot/hash)."
-    )
-    await bot.send_message(callback.from_user.id, payment_msg)
-    await state.update_data(plan=plan)
-    await SubscribeState.proof.set()
+    elif text.startswith("/subscribe"):
+        # Fixed: Proper InlineKeyboardMarkup syntax for aiogram 3.x
+        keyboard = types.InlineKeyboardMarkup(
+            inline_keyboard=[
+                [types.InlineKeyboardButton(text="$30 Bi-Weekly", callback_data="plan_biweekly")],
+                [types.InlineKeyboardButton(text="$50 Monthly", callback_data="plan_monthly")]
+            ]
+        )
+        await message.reply("Pick a plan:", reply_markup=keyboard)
 
-@dp.message_handler(content_types=['photo', 'text'], state=SubscribeState.proof)
-async def process_proof(message: types.Message, state: FSMContext):
-    user_id = message.from_user.id
-    data = await state.get_data()
-    plan = data['plan']
-    await bot.send_message(ADMIN_ID, f"User {user_id} sent proof for {plan}:")
-    if message.photo:
-        await bot.send_photo(ADMIN_ID, message.photo[-1].file_id)
-    elif message.text:
-        await bot.send_message(ADMIN_ID, message.text)
-    await message.reply("Proof sent! Waiting for approval.")
-    await state.finish()
+    elif text.startswith("/approve"):
+        admins = [admin.user.id for admin in await message.chat.get_administrators()]
+        if message.from_user.id == ADMIN_ID or message.from_user.id in admins:
+            args = message.text.split()
+            if len(args) != 3 or args[2] not in ["biweekly", "monthly"]:
+                await message.reply("Use: /approve <user_id> <biweekly/monthly>")
+                return
+            target_user_id, plan = int(args[1]), args[2]
+            referrer, commission = approve_vip(target_user_id, plan)
+            await bot.send_message(target_user_id, "You’re VIP! Check the channel.")
+            await bot.send_message(VIP_CHANNEL, f"New VIP: @{message.from_user.username}")
+            await message.reply(f"Approved {target_user_id}.")
+            if referrer:
+                await bot.send_message(referrer, f"Referral bonus: ${commission}!")
 
-@dp.message_handler(commands=['approve'], is_chat_admin=True)
-async def approve_user(message: types.Message):
-    args = message.get_args().split()
-    if len(args) != 2 or args[1] not in ["biweekly", "monthly"]:
-        await message.reply("Use: /approve <user_id> <biweekly/monthly>")
-        return
-    user_id, plan = int(args[0]), args[1]
-    referrer, commission = approve_vip(user_id, plan)
-    await bot.send_message(user_id, "You’re VIP! Check the channel.")
-    await bot.send_message(VIP_CHANNEL, f"New VIP: @{message.from_user.username}")
-    await message.reply(f"Approved {user_id}.")
-    if referrer:
-        await bot.send_message(referrer, f"Referral bonus: ${commission}!")
+    elif text.startswith("/signal"):
+        admins = [admin.user.id for admin in await message.chat.get_administrators()]
+        if message.from_user.id == ADMIN_ID or message.from_user.id in admins:
+            signal = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else None
+            if not signal:
+                await message.reply("Use: /signal <text>")
+                return
+            await bot.send_message(VIP_CHANNEL, f"📈 XAUUSD Signal: {signal}")
+            await message.reply("Signal posted!")
 
-@dp.message_handler(commands=['signal'], is_chat_admin=True)
-async def post_signal(message: types.Message):
-    signal = message.get_args()
-    if not signal:
-        await message.reply("Use: /signal <text>")
-        return
-    await bot.send_message(VIP_CHANNEL, f"📈 XAUUSD Signal: {signal}")
-    await message.reply("Signal posted!")
+    # Handle proof submission
+    elif user_id in user_states and user_states[user_id]["state"] == SubscribeState.PROOF:
+        if message.photo or message.text:
+            plan = user_states[user_id]["plan"]
+            await bot.send_message(ADMIN_ID, f"User {user_id} sent proof for {plan}:")
+            if message.photo:
+                await bot.send_photo(ADMIN_ID, message.photo[-1].file_id)
+            elif message.text:
+                await bot.send_message(ADMIN_ID, message.text)
+            await message.reply("Proof sent! Waiting for approval.")
+            del user_states[user_id]
+
+    # Spam filter
+    elif message.chat.id == VIP_CHANNEL and not message.from_user.is_bot:
+        user = get_user(user_id)
+        if not user or user[4] != 1:
+            await message.delete()
+            await bot.send_message(user_id, "VIPs only! Use /subscribe.")
+
+@dp.callback_query()
+async def handle_callback(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    print(f"Callback received: {callback.data}")  # Debug log
+    if callback.data.startswith("plan_"):
+        plan = callback.data.split("_")[1]
+        await bot.answer_callback_query(callback.id)
+        payment_msg = (
+            "Pay here:\n"
+            "USDT (SOL): 7ryDkprn33twExM1ScdfStcuxTrdDxuJXedTZZH66gAZ\n"
+            "USDT (BSC): 0x59b733f5cc3f2b48c703aef91bd9a531f39d60a0\n"
+            "USDT (TRC20): TH6W67eY7XtQusdrWGProevkXsQV6C9iC8\n"
+            "USDT (ETH): 0x59b733f5cc3f2b48c703aef91bd9a531f39d60a0\n"
+            "USDT (TON): 0x59b733f5cc3f2b48c703aef91bd9a531f39d60a0\n"
+            "Send proof here (screenshot/hash)."
+        )
+        await bot.send_message(callback.from_user.id, payment_msg)
+        user_states[user_id] = {"state": SubscribeState.PROOF, "plan": plan}
 
 async def fetch_auto_signals():
+    max_retries = 3
+    base_delay = 5  # Seconds
+    last_signal = "XAUUSD Latest: N/A (Fallback)"  # Fallback signal
     while True:
-        try:
-            url = f"https://www.alphavantage.co/query?function=FX_INTRADAY&from_symbol=XAU&to_symbol=USD&interval=5min&apikey={ALPHA_VANTAGE_KEY}"
-            response = requests.get(url).json()
-            if "Time Series FX (5min)" in response:
-                latest = response["Time Series FX (5min)"][list(response["Time Series FX (5min)"].keys())[0]]
-                signal = f"XAUUSD Latest: {latest['4. close']} (Auto)"
-                await bot.send_message(VIP_CHANNEL, f"📈 {signal}")
-            else:
-                await bot.send_message(ADMIN_ID, "Alpha Vantage API issue—check key!")
-        except Exception as e:
-            await bot.send_message(ADMIN_ID, f"Auto-signal error: {str(e)}")
+        for attempt in range(max_retries):
+            try:
+                url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=XAUUSD&apikey={ALPHA_VANTAGE_KEY}"
+                response = requests.get(url, timeout=10)
+                response.raise_for_status()
+                data = response.json()
+                print(f"Alpha Vantage response: {data}")  # Debug log
+                if "Global Quote" in data and data["Global Quote"]:
+                    price = data["Global Quote"]["05. price"]
+                    signal = f"XAUUSD Latest: {price} (Auto)"
+                    print(f"Sending auto-signal: {signal}")
+                    await bot.send_message(VIP_CHANNEL, f"📈 {signal}")
+                    last_signal = signal  # Store last good signal
+                    break  # Success, exit retry loop
+                else:
+                    print("Alpha Vantage API returned no data—check key or limits!")
+                    await bot.send_message(ADMIN_ID, f"Alpha Vantage API issue—raw response: {data}")
+                    break
+            except requests.exceptions.RequestException as e:
+                print(f"Auto-signal network error (attempt {attempt + 1}/{max_retries}): {str(e)}")
+                if attempt == max_retries - 1:  # Last attempt failed
+                    print("Max retries reached, using fallback signal!")
+                    await bot.send_message(VIP_CHANNEL, f"📈 {last_signal}")
+                    await bot.send_message(ADMIN_ID, "Alpha Vantage keeps failing—check network or key!")
+                else:
+                    delay = base_delay * (2 ** attempt)  # Exponential backoff
+                    print(f"Retrying in {delay} seconds...")
+                    await asyncio.sleep(delay)
         await asyncio.sleep(300)  # Every 5 mins
-
-@dp.message_handler(lambda message: message.chat.id == VIP_CHANNEL and not message.from_user.is_bot)
-async def filter_spam(message: types.Message):
-    user = get_user(message.from_user.id)
-    if not user or user[4] != 1:
-        await message.delete()
-        await bot.send_message(message.from_user.id, "VIPs only! Use /subscribe.")
 
 async def subscription_task():
     while True:
         expired, reminders = check_subscriptions()
         for user_id in expired:
+            print(f"Sending expiration notice to {user_id}")
             await bot.send_message(user_id, "VIP expired! Renew with /subscribe.")
         for user_id in reminders:
+            print(f"Sending reminder to {user_id}")
             await bot.send_message(user_id, "VIP expires in 2 days! Renew with /subscribe.")
         await asyncio.sleep(86400)  # Daily
 
 async def main():
     init_db()
+    print("Main Bot is starting...")
     asyncio.create_task(subscription_task())
     asyncio.create_task(fetch_auto_signals())
     asyncio.create_task(start_help_bot())
-    await dp.start_polling(skip_updates=True)
+    try:
+        await dp.start_polling(bot, polling_timeout=10)
+    except Exception as e:
+        print(f"Main Bot polling failed: {str(e)}")
+    print("Main Bot polling ended unexpectedly!")
 
-if __name__ == '_main_':
+if __name__ == "__main__":
+    print("Starting GoldSightBot...")
     asyncio.run(main())
+    print("GoldSightBot has stopped—shouldn’t see this unless it crashes!")
+    while True:
+        print("Main loop still running...")
+        asyncio.run(asyncio.sleep(60))
