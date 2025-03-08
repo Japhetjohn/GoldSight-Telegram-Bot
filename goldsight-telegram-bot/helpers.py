@@ -22,7 +22,7 @@ async def handle_help(message: types.Message):
     text = message.text.lower()
     print(f"Help Bot received: {text}")  # Debug log
     if text.startswith("/start"):
-        await message.reply("Yo Japhet! GoldSight Help Bot here. Ask me or /faq!")
+        await message.reply(" GoldSight Help Bot here. Ask me or /faq!")
     elif text.startswith("/faq"):
         faq_msg = "\n".join([f"- {k}: {v}" for k, v in FAQ.items()])
         await message.reply(f"FAQs:\n{faq_msg}")
@@ -31,7 +31,7 @@ async def handle_help(message: types.Message):
             if question in text:
                 await message.reply(answer)
                 return
-        await message.reply("Not sure? Try /faq or I’ll ping Japhet!")
+        await message.reply("Not sure? Try /faq or I’ll ping!")
         await help_bot.send_message(ADMIN_ID, f"Live support from {message.from_user.id}: {message.text}")
 
 async def start_help_bot():

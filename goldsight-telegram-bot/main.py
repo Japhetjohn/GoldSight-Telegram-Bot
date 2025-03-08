@@ -31,7 +31,7 @@ async def handle_message(message: types.Message):
         referral = message.text.split(maxsplit=1)[1] if len(message.text.split()) > 1 else None
         ref_code = add_user(user_id, referral)
         welcome_msg = (
-            "Welcome to GoldSightBot, Japhet! 📈\n"
+            "Welcome to GoldSightBot,  📈\n"
             "/subscribe - Join VIP\n"
             "/referral - Earn 10%\n"
             "Help? @Goldsighthelpbot"
