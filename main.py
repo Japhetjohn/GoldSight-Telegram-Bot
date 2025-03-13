@@ -1,14 +1,17 @@
 import asyncio
 import requests
 import os
+import threading
+import http.server
+import socketserver
 from aiogram import Bot, Dispatcher, types
-from aiogram.exceptions import TelegramNetworkError
 from dotenv import load_dotenv
 
+# Load environment variables
 load_dotenv()
 API_TOKEN = os.getenv("MAIN_BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
-VIP_CHANNEL = int(os.getenv("VIP_CHANNEL_ID"))  # -1002234242428
+VIP_CHANNEL = int(os.getenv("VIP_CHANNEL_ID"))
 ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_KEY")
 
 bot = Bot(token=API_TOKEN)
@@ -32,11 +35,13 @@ async def handle_message(message: types.Message):
         ref_code = add_user(user_id, referral)
         welcome_msg = (
             "WELCOME TO GOLDSIGHT 🥇\n\n"
-            "Join our team for top-tier trading signals worldwide 🌎\n\n"
+            "Receive Day trading & swing trading signals from the GoldSight team everywhere around the world 🌎\n\n"
             "We trade:\n✅XAUUSD\n✅USDJPY\n✅EURUSD\n\n"
-            "Chat with us: @GoldSight\n\n"
-            "NOTE: Trades are our forex perspective\n"
-            "DISCLAIMER: Past performance isn’t future profits\n\n"
+            "Join the general chat for questions and updates: @GoldSight\n\n"
+            "Standard - $75.00\n"
+            "This service lets you copy GoldSight’s unique trades for a month across our instruments.\n\n"
+            "NOTE: All trades are our perspective on Forex\n"
+            "DISCLAIMER: Past performance does not guarantee future profits.\n\n"
             "Tap below:\n/subscribe - Join VIP\n/referral - Earn 10%\n/terms - Read Terms"
         )
         await message.reply(welcome_msg)
@@ -52,92 +57,30 @@ async def handle_message(message: types.Message):
     elif text.startswith("/subscribe"):
         keyboard = types.InlineKeyboardMarkup(
             inline_keyboard=[
-                [types.InlineKeyboardButton(text="$30 Bi-Weekly", callback_data="plan_biweekly")],
-                [types.InlineKeyboardButton(text="$50 Monthly", callback_data="plan_monthly")]
+                [types.InlineKeyboardButton(text="Standard - $75 (Monthly)", callback_data="plan_standard")]
             ]
         )
-        await message.reply("Choose your VIP plan:", reply_markup=keyboard)
+        await message.reply("Pick your plan:", reply_markup=keyboard)
 
     elif text.startswith("/terms"):
         terms_msg = (
             "TERMS & CONDITIONS\n"
-            "Past results don’t guarantee future gains. Use risk management.\n"
-            "1. No stolen cards—banned if caught.\n"
-            "2. Valid emails only for access.\n"
-            "3. No disputes/chargebacks—permanent ban.\n"
-            "4. Payment issues? Email vipsubscribepro@gmail.com or @GoldSightSupport.\n"
-            "5. Manually renew subscriptions.\n"
-            "6. Support: vipsubscribepro@gmail.com.\n"
-            "7. Emails about products post-purchase.\n"
-            "8. We may contact you about your sub.\n"
-            "9. Check pinned message in VIP channel.\n\n"
+            "Past results don’t guarantee future performance. Use proper risk management to protect your capital.\n"
+            "1. Stolen debit/credit cards are banned—you’ll be caught and removed.\n"
+            "2. Use valid emails only—access goes to legit emails.\n"
+            "3. No disputes or chargebacks—you’ll be banned forever.\n"
+            "4. Payment issues? Email vipsubscribepro@gmail.com or message @GoldSightSupport. Be patient—lots of messages.\n"
+            "5. Subscriptions aren’t automatic—renew manually when expired.\n"
+            "6. Contact support at vipsubscribepro@gmail.com for issues.\n"
+            "7. You’ll get emails about our products after purchase.\n"
+            "8. We can contact you anytime about your subscription.\n"
+            "9. Read the pinned message in the VIP channel once in.\n\n"
             "PRIVACY POLICY\n"
-            "No third-party sharing. Forex info post-payment.\n\n"
+            "We don’t share your info with third parties. You might get forex info from us after payment.\n\n"
             "REFUND POLICY\n"
-            "No refunds after VIP access."
+            "No refunds after joining the channel."
         )
         await message.reply(terms_msg)
-
-    elif text.startswith("/approve"):
-        admins = [admin.user.id for admin in await message.chat.get_administrators()]
-        if user_id == ADMIN_ID or user_id in admins:
-            args = text.split()
-            if len(args) != 3 or args[2] not in ["biweekly", "monthly"]:
-                await message.reply("Use: /approve <user_id> <biweekly/monthly>")
-                return
-            from database import approve_vip
-            target_id, plan = int(args[1]), args[2]
-            referrer, commission = approve_vip(target_id, plan)
-            await bot.send_message(target_id, "You’re in! Join VIP: https://t.me/+9CEQlcQ6b1U2Nzdk")
-            await bot.send_message(VIP_CHANNEL, f"New VIP: @{message.from_user.username}")
-            await message.reply(f"Approved {target_id} for {plan}.")
-            if referrer:
-                await bot.send_message(referrer, f"Referral bonus: ${commission}!")
-
-    elif text.startswith("/signal"):
-        admins = [admin.user.id for admin in await message.chat.get_administrators()]
-        if user_id == ADMIN_ID or user_id in admins:
-            signal = text.split(maxsplit=1)[1] if len(text.split()) > 1 else None
-            if not signal:
-                await message.reply("Use: /signal <text>")
-                return
-            await bot.send_message(VIP_CHANNEL, f"📈 Signal: {signal}")
-            await message.reply("Signal sent to VIP!")
-
-    elif user_id in user_states and user_states[user_id]["state"] == SubscribeState.PROOF:
-        if message.photo or message.text:
-            plan = user_states[user_id]["plan"]
-            await bot.send_message(ADMIN_ID, f"User {user_id} sent proof for {plan}:")
-            if message.photo:
-                await bot.send_photo(ADMIN_ID, message.photo[-1].file_id)
-            elif message.text:
-                await bot.send_message(ADMIN_ID, message.text)
-            await message.reply("Proof sent! Awaiting approval.")
-            del user_states[user_id]
-
-    elif message.chat.id == VIP_CHANNEL and not message.from_user.is_bot:
-        from database import get_user
-        user = get_user(user_id)
-        if not user or user[4] != 1:
-            await message.delete()
-            await bot.send_message(user_id, "VIPs only! Use /subscribe.")
-
-@dp.callback_query()
-async def handle_callback(callback: types.CallbackQuery):
-    user_id = callback.from_user.id
-    print(f"Callback: {callback.data}")
-    if callback.data.startswith("plan_"):
-        plan = callback.data.split("_")[1]
-        await bot.answer_callback_query(callback.id)
-        payment_msg = (
-            f"Pay for {plan.capitalize()} - ${'30' if plan == 'biweekly' else '50'}:\n"
-            "USDT (SOL): 7ryDkprn33twExM1ScdfStcuxTrdDxuJXedTZZH66gAZ\n"
-            "USDT (BSC): 0x59b733f5cc3f2b48c703aef91bd9a531f39d60a0\n"
-            "Send proof here (screenshot/hash).\n"
-            "Support: @GoldSightSupport"
-        )
-        await bot.send_message(user_id, payment_msg)
-        user_states[user_id] = {"state": SubscribeState.PROOF, "plan": plan}
 
 async def fetch_auto_signals():
     max_retries = 3
@@ -165,8 +108,10 @@ async def fetch_auto_signals():
                 print(f"Signal error (attempt {attempt + 1}): {e}")
                 if attempt == max_retries - 1:
                     await bot.send_message(VIP_CHANNEL, f"📈 {last_signal}")
-                    await bot.send_message(ADMIN_ID, "Alpha Vantage down!")
-                await asyncio.sleep(base_delay * (2 ** attempt))
+                    await bot.send_message(ADMIN_ID, "Alpha Vantage keeps failing!")
+                else:
+                    delay = base_delay * (2 ** attempt)
+                    await asyncio.sleep(delay)
         await asyncio.sleep(300)
 
 async def subscription_task():
@@ -186,21 +131,30 @@ async def main():
     from helpers import start_help_bot
     init_db()
     print("GoldSightBot starting...")
-    retries = 5
-    for attempt in range(retries):
-        try:
-            asyncio.create_task(subscription_task())
-            asyncio.create_task(fetch_auto_signals())
-            asyncio.create_task(start_help_bot())
-            await dp.start_polling(bot)
-            break
-        except TelegramNetworkError as e:
-            print(f"Network error (attempt {attempt + 1}/{retries}): {e}")
-            if attempt < retries - 1:
-                await asyncio.sleep(5 * (2 ** attempt))
-            else:
-                print("Max retries reached. Check your network and try again.")
-                raise
+    asyncio.create_task(subscription_task())
+    asyncio.create_task(fetch_auto_signals())
+    asyncio.create_task(start_help_bot())
+    await dp.start_polling(bot)
+
+# Adding an HTTP server to prevent Render's timeout issue
+PORT = 8080  # Ensure this matches the PORT variable in Render settings
+
+class Handler(http.server.SimpleHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"Bot is running")
+
+def run_server():
+    with socketserver.TCPServer(("", PORT), Handler) as httpd:
+        print(f"Serving on port {PORT}")
+        httpd.serve_forever()
 
 if __name__ == "__main__":
+    # Start the HTTP server in a separate thread to satisfy Render's port binding requirement
+    server_thread = threading.Thread(target=run_server, daemon=True)
+    server_thread.start()
+
+    # Start the bot
     asyncio.run(main())
