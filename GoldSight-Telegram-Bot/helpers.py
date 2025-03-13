@@ -22,8 +22,20 @@ async def handle_help(message: types.Message):
 async def start_help_bot():
     print("Help Bot starting...")
     retries = 5
+    help_bot_username = None
+    try:
+        # Get the help bot's username
+        bot_info = await help_bot.get_me()
+        help_bot_username = f"@{bot_info.username}"
+        print(f"Help Bot username fetched: {help_bot_username}")
+    except Exception as e:
+        print(f"Failed to get Help Bot info: {e}")
+        help_bot_username = "@GoldSightHelpBot"  # Fallback
+        print(f"Using fallback username: {help_bot_username}")
+
     for attempt in range(retries):
         try:
+            print(f"Starting Help Bot polling with username: {help_bot_username}")
             await help_dp.start_polling(help_bot)
             break
         except TelegramNetworkError as e:
@@ -33,3 +45,4 @@ async def start_help_bot():
             else:
                 print("Help Bot max retries reached.")
                 raise
+    return help_bot_username
