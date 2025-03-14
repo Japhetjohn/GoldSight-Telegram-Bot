@@ -1,63 +1,83 @@
-import asyncio
-import os
-import requests
-from dotenv import load_dotenv
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import Update
-from fastapi import FastAPI, Request
-import uvicorn
-from database import init_db
-from helpers import fetch_auto_signals
+import sqlite3
+import threading
+from datetime import datetime, timedelta
 
-# Load environment variables
-load_dotenv()
-API_TOKEN = os.getenv("MAIN_BOT_TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID"))
-VIP_CHANNEL = int(os.getenv("VIP_CHANNEL_ID"))
-ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_KEY")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")
-PORT = int(os.getenv("PORT", 8080))
+DB_FILE = "goldsight.db"
+DB_LOCK = threading.Lock()  # Prevents race conditions in multithreading
 
-# Validate environment variables
-if not all([API_TOKEN, ADMIN_ID, VIP_CHANNEL, ALPHA_VANTAGE_KEY, WEBHOOK_URL]):
-    raise ValueError("❌ Missing required environment variables!")
+def get_db_connection():
+    """Creates and returns a thread-safe database connection."""
+    conn = sqlite3.connect(DB_FILE, check_same_thread=False)
+    conn.row_factory = sqlite3.Row  # Allows accessing columns by name
+    return conn
 
-# Initialize bot and dispatcher
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher()
-app = FastAPI()
+def init_db():
+    """Initializes the database with necessary tables."""
+    with DB_LOCK, get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                user_id INTEGER PRIMARY KEY, 
+                subscription_end TEXT, 
+                referral_code TEXT, 
+                referred_by INTEGER, 
+                vip_status INTEGER DEFAULT 0
+            )
+        ''')
+        conn.commit()
 
-# Set up webhook path
-WEBHOOK_PATH = f"/webhook/{API_TOKEN}"
+def add_user(user_id, referral=None):
+    """Adds a user if they don't already exist."""
+    ref_code = f"REF{user_id}"
+    with DB_LOCK, get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute("""
+            INSERT OR IGNORE INTO users (user_id, referral_code, referred_by) 
+            VALUES (?, ?, ?)
+        """, (user_id, ref_code, referral))
+        conn.commit()
+    return ref_code
 
-@app.post(WEBHOOK_PATH)
-async def handle_update(request: Request):
-    """Receive webhook updates from Telegram."""
-    update = await request.json()
-    telegram_update = Update(**update)
-    await dp.feed_update(bot, telegram_update)
-    return {"ok": True}
+def approve_vip(user_id, plan):
+    """Approves VIP membership and calculates commissions."""
+    days = 14 if plan == "biweekly" else 30
+    sub_end = (datetime.now() + timedelta(days=days)).isoformat()
 
-async def on_startup():
-    """Set webhook on startup and start auto signals."""
-    webhook_url = f"{WEBHOOK_URL}{WEBHOOK_PATH}"
-    response = requests.get(f"https://api.telegram.org/bot{API_TOKEN}/setWebhook?url={webhook_url}")
-    print("✅ Webhook Set:", response.json())
+    with DB_LOCK, get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute("UPDATE users SET subscription_end=?, vip_status=1 WHERE user_id=?", 
+                  (sub_end, user_id))
+        c.execute("SELECT referred_by FROM users WHERE user_id=?", (user_id,))
+        referrer = c.fetchone()
+        commission = 3 if plan == "biweekly" else 5  # 10% of $30 or $50
+        conn.commit()
 
-    try:
-        await bot.send_message(VIP_CHANNEL, "Bot started successfully via Webhook!")
-    except Exception as e:
-        print(f"🚨 Failed to access VIP channel ({VIP_CHANNEL}): {e}")
-        await bot.send_message(ADMIN_ID, f"VIP channel error: {e}")
+    return referrer["referred_by"] if referrer and referrer["referred_by"] else None, commission
 
-    asyncio.create_task(fetch_auto_signals(bot, VIP_CHANNEL, ADMIN_ID, ALPHA_VANTAGE_KEY))
+def get_user(user_id):
+    """Fetches user details."""
+    with DB_LOCK, get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute("SELECT * FROM users WHERE user_id=?", (user_id,))
+        return c.fetchone()
 
-async def on_shutdown():
-    """Delete webhook on shutdown."""
-    response = requests.get(f"https://api.telegram.org/bot{API_TOKEN}/deleteWebhook")
-    print("🛑 Webhook Deleted:", response.json())
+def check_subscriptions():
+    """Checks for expired subscriptions and upcoming renewals."""
+    expired, reminders = [], []
+    now = datetime.now()
 
-if __name__ == "__main__":
-    init_db()  # Initialize database
-    asyncio.run(on_startup())
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    with DB_LOCK, get_db_connection() as conn:
+        c = conn.cursor()
+        c.execute("SELECT user_id, subscription_end FROM users WHERE vip_status=1")
+        for row in c.fetchall():
+            user_id, sub_end = row["user_id"], row["subscription_end"]
+            sub_end_dt = datetime.fromisoformat(sub_end) if sub_end else None
+
+            if sub_end_dt and sub_end_dt < now:
+                c.execute("UPDATE users SET vip_status=0 WHERE user_id=?", (user_id,))
+                expired.append(user_id)
+            elif sub_end_dt and (sub_end_dt - now).days <= 2:
+                reminders.append(user_id)
+        conn.commit()
+
+    return expired, reminders
