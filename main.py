@@ -1,10 +1,8 @@
 import asyncio
 import requests
 import os
-import threading
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import Update
-from aiogram.utils.executor import start_webhook
 from dotenv import load_dotenv
 from fastapi import FastAPI, Request
 
@@ -14,9 +12,11 @@ API_TOKEN = os.getenv("MAIN_BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 VIP_CHANNEL = os.getenv("VIP_CHANNEL_ID")
 ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_KEY")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Example: "https://yourapp.onrender.com"
+PORT = int(os.getenv("PORT", 8080))
 
 # Validate environment variables
-if not all([API_TOKEN, ADMIN_ID, VIP_CHANNEL, ALPHA_VANTAGE_KEY]):
+if not all([API_TOKEN, ADMIN_ID, VIP_CHANNEL, ALPHA_VANTAGE_KEY, WEBHOOK_URL]):
     raise ValueError("Missing required environment variables!")
 
 # Convert VIP_CHANNEL to int
@@ -29,9 +29,7 @@ bot = Bot(token=API_TOKEN)
 dp = Dispatcher(bot)
 app = FastAPI()
 
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Example: "https://your-public-url.loca.lt"
 WEBHOOK_PATH = f"/webhook/{API_TOKEN}"
-PORT = int(os.getenv("PORT", 8080))
 
 @app.post(WEBHOOK_PATH)
 async def handle_update(request: Request):
@@ -54,8 +52,6 @@ async def fetch_auto_signals():
                 response = requests.get(url, timeout=15)
                 response.raise_for_status()
                 data = response.json()
-
-                print(f"Alpha Vantage Response: {data}")
 
                 if "Global Quote" in data and data["Global Quote"].get("05. price"):
                     price = data["Global Quote"]["05. price"]
@@ -84,10 +80,11 @@ async def fetch_auto_signals():
         print("Waiting 5 minutes for next signal...")
         await asyncio.sleep(300)
 
+@app.on_event("startup")
 async def on_startup():
     """Set webhook on startup."""
     webhook_url = f"{WEBHOOK_URL}{WEBHOOK_PATH}"
-    response = requests.get(f"https://api.telegram.org/bot{API_TOKEN}/setWebhook?url={webhook_url}")
+    response = requests.post(f"https://api.telegram.org/bot{API_TOKEN}/setWebhook", json={"url": webhook_url})
     print("✅ Webhook Set:", response.json())
 
     try:
@@ -99,14 +96,12 @@ async def on_startup():
 
     asyncio.create_task(fetch_auto_signals())
 
+@app.on_event("shutdown")
 async def on_shutdown():
     """Delete webhook on shutdown."""
-    response = requests.get(f"https://api.telegram.org/bot{API_TOKEN}/deleteWebhook")
+    response = requests.post(f"https://api.telegram.org/bot{API_TOKEN}/deleteWebhook")
     print("🛑 Webhook Deleted:", response.json())
 
-# Start FastAPI with Uvicorn
 if __name__ == "__main__":
     import uvicorn
-
-    asyncio.run(on_startup())
     uvicorn.run(app, host="0.0.0.0", port=PORT)
