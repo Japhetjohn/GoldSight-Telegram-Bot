@@ -12,11 +12,11 @@ HELP_BOT_TOKEN = os.getenv("HELP_BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 VIP_CHANNEL = int(os.getenv("VIP_CHANNEL_ID"))
 ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_KEY")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://goldsight-telegram-bot.onrender.com")  # Render URL
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://goldsight-telegram-bot.onrender.com")
 WEBHOOK_PATH = "/webhook"
 HELP_WEBHOOK_PATH = "/help_webhook"
 WEBAPP_HOST = "0.0.0.0"
-WEBAPP_PORT = int(os.getenv("PORT", 5000))  # Render provides $PORT, default to 5000 locally
+WEBAPP_PORT = int(os.getenv("PORT", 5000))
 
 # Main Bot
 main_bot = Bot(token=API_TOKEN)
@@ -55,7 +55,7 @@ async def handle_message(message: types.Message):
         await message.reply(welcome_msg)
 
     elif text.startswith("/referral"):
-        from database import get_user
+        from database import add_user
         user = get_user(user_id)
         if user:
             await message.reply(f"Referral link: t.me/GoldSightBot?start={user[2]}\nEarn 10% per paid referral!")
@@ -109,13 +109,22 @@ async def handle_message(message: types.Message):
 
     elif text.startswith("/signal"):
         admins = [admin.user.id for admin in await message.chat.get_administrators()]
+        print(f"Admins in chat: {admins}, User ID: {user_id}, Checking against ADMIN_ID: {ADMIN_ID}")
         if user_id == ADMIN_ID or user_id in admins:
             signal = text.split(maxsplit=1)[1] if len(text.split()) > 1 else None
             if not signal:
                 await message.reply("Use: /signal <text>")
                 return
-            await main_bot.send_message(VIP_CHANNEL, f"📈 Signal: {signal}")
-            await message.reply("Signal sent to VIP!")
+            try:
+                await main_bot.send_message(VIP_CHANNEL, f"📈 Signal: {signal}")
+                print(f"Signal '{signal}' successfully sent to VIP channel: {VIP_CHANNEL}")
+                await message.reply("Signal sent to VIP!")
+            except Exception as e:
+                print(f"Failed to send signal to {VIP_CHANNEL}: {e}")
+                await message.reply(f"Error sending signal: {e}")
+        else:
+            print(f"User {user_id} not authorized to send signals")
+            await message.reply("Admins only!")
 
     elif user_id in user_states and user_states[user_id]["state"] == SubscribeState.PROOF:
         if message.photo or message.text:
@@ -174,22 +183,24 @@ async def fetch_auto_signals():
         for attempt in range(max_retries):
             try:
                 url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=XAUUSD&apikey={ALPHA_VANTAGE_KEY}"
+                print(f"Attempting to fetch signal from: {url}")
                 response = requests.get(url, timeout=10)
                 response.raise_for_status()
                 data = response.json()
                 if "Global Quote" in data and data["Global Quote"]:
                     price = data["Global Quote"]["05. price"]
                     signal = f"XAUUSD Latest: {price} (Auto)"
-                    print(f"Sending: {signal}")
+                    print(f"Preparing to send signal: {signal} to {VIP_CHANNEL}")
                     await main_bot.send_message(VIP_CHANNEL, f"📈 {signal}")
+                    print(f"Auto signal '{signal}' sent to {VIP_CHANNEL}")
                     last_signal = signal
                     break
                 else:
-                    print("No data from Alpha Vantage!")
+                    print("No valid data from Alpha Vantage!")
                     await main_bot.send_message(ADMIN_ID, "Alpha Vantage issue!")
                     break
             except Exception as e:
-                print(f"Signal error (attempt {attempt + 1}): {e}")
+                print(f"Auto signal error (attempt {attempt + 1}): {e}")
                 if attempt == max_retries - 1:
                     await main_bot.send_message(VIP_CHANNEL, f"📈 {last_signal}")
                     await main_bot.send_message(ADMIN_ID, "Alpha Vantage down!")
