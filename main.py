@@ -227,6 +227,16 @@ async def on_main_shutdown():
     print("Main bot webhook deleted.")
 
 async def on_help_startup():
+    print("Help Bot starting...")
+    try:
+        bot_info = await help_bot.get_me()
+        help_bot_username = f"@{bot_info.username}"
+        print(f"Help Bot username fetched: {help_bot_username}")
+    except Exception as e:
+        print(f"Failed to get Help Bot info: {e}")
+        help_bot_username = "@GoldSightHelpBot"  # Fallback
+        print(f"Using fallback username: {help_bot_username}")
+    
     print("Setting help bot webhook...")
     full_webhook_url = f"{HELP_WEBHOOK_URL}{HELP_WEBHOOK_PATH}"
     await help_bot.set_webhook(url=full_webhook_url)
