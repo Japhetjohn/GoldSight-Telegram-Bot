@@ -12,13 +12,11 @@ HELP_BOT_TOKEN = os.getenv("HELP_BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 VIP_CHANNEL = int(os.getenv("VIP_CHANNEL_ID"))
 ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_KEY")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # https://mycustomname.loca.lt
-HELP_WEBHOOK_URL = os.getenv("HELP_WEBHOOK_URL")  # https://mycustomname-help.loca.lt
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://goldsight-telegram-bot.onrender.com")  # Render URL
 WEBHOOK_PATH = "/webhook"
 HELP_WEBHOOK_PATH = "/help_webhook"
 WEBAPP_HOST = "0.0.0.0"
-WEBAPP_PORT = 5000  # Main bot
-HELP_WEBAPP_PORT = 5001  # Help bot
+WEBAPP_PORT = int(os.getenv("PORT", 5000))  # Render provides $PORT, default to 5000 locally
 
 # Main Bot
 main_bot = Bot(token=API_TOKEN)
@@ -211,23 +209,16 @@ async def subscription_task():
         await asyncio.sleep(86400)
 
 # Startup and Shutdown
-async def on_main_startup():
+async def on_startup():
     from database import init_db
     init_db()
     print("Setting main bot webhook...")
-    full_webhook_url = f"{WEBHOOK_URL}{WEBHOOK_PATH}"
-    await main_bot.set_webhook(url=full_webhook_url)
-    print(f"Main bot webhook set to {full_webhook_url}")
-    asyncio.create_task(subscription_task())
-    asyncio.create_task(fetch_auto_signals())
+    main_webhook_url = f"{WEBHOOK_URL}{WEBHOOK_PATH}"
+    await main_bot.set_webhook(url=main_webhook_url)
+    print(f"Main bot webhook set to {main_webhook_url}")
 
-async def on_main_shutdown():
-    print("Shutting down main bot...")
-    await main_bot.delete_webhook()
-    print("Main bot webhook deleted.")
-
-async def on_help_startup():
-    print("Help Bot starting...")
+    print("Setting help bot webhook...")
+    help_webhook_url = f"{WEBHOOK_URL}{HELP_WEBHOOK_PATH}"
     try:
         bot_info = await help_bot.get_me()
         help_bot_username = f"@{bot_info.username}"
@@ -236,46 +227,37 @@ async def on_help_startup():
         print(f"Failed to get Help Bot info: {e}")
         help_bot_username = "@GoldSightHelpBot"  # Fallback
         print(f"Using fallback username: {help_bot_username}")
-    
-    print("Setting help bot webhook...")
-    full_webhook_url = f"{HELP_WEBHOOK_URL}{HELP_WEBHOOK_PATH}"
-    await help_bot.set_webhook(url=full_webhook_url)
-    print(f"Help bot webhook set to {full_webhook_url}")
+    await help_bot.set_webhook(url=help_webhook_url)
+    print(f"Help bot webhook set to {help_webhook_url}")
 
-async def on_help_shutdown():
-    print("Shutting down help bot...")
+    asyncio.create_task(subscription_task())
+    asyncio.create_task(fetch_auto_signals())
+
+async def on_shutdown():
+    print("Shutting down...")
+    await main_bot.delete_webhook()
     await help_bot.delete_webhook()
-    print("Help bot webhook deleted.")
+    print("Webhooks deleted.")
 
 def main():
-    # Main Bot Webhook
-    main_app = web.Application()
-    main_webhook_handler = SimpleRequestHandler(dispatcher=main_dp, bot=main_bot)
-    main_webhook_handler.register(main_app, path=WEBHOOK_PATH)
-    setup_application(main_app, main_dp, bot=main_bot)
+    app = web.Application()
 
-    main_dp.startup.register(on_main_startup)
-    main_dp.shutdown.register(on_main_shutdown)
+    # Main Bot Webhook
+    main_handler = SimpleRequestHandler(dispatcher=main_dp, bot=main_bot)
+    main_handler.register(app, path=WEBHOOK_PATH)
 
     # Help Bot Webhook
-    help_app = web.Application()
-    help_webhook_handler = SimpleRequestHandler(dispatcher=help_dp, bot=help_bot)
-    help_webhook_handler.register(help_app, path=HELP_WEBHOOK_PATH)
-    setup_application(help_app, help_dp, bot=help_bot)
+    help_handler = SimpleRequestHandler(dispatcher=help_dp, bot=help_bot)
+    help_handler.register(app, path=HELP_WEBHOOK_PATH)
 
-    help_dp.startup.register(on_help_startup)
-    help_dp.shutdown.register(on_help_shutdown)
+    setup_application(app, main_dp, bot=main_bot)
+    setup_application(app, help_dp, bot=help_bot)
 
-    # Run both webhook servers
-    async def run_both():
-        print(f"Starting main bot webhook server on {WEBAPP_HOST}:{WEBAPP_PORT}")
-        print(f"Starting help bot webhook server on {WEBAPP_HOST}:{HELP_WEBAPP_PORT}")
-        await asyncio.gather(
-            web._run_app(main_app, host=WEBAPP_HOST, port=WEBAPP_PORT),
-            web._run_app(help_app, host=WEBAPP_HOST, port=HELP_WEBAPP_PORT)
-        )
+    main_dp.startup.register(on_startup)
+    main_dp.shutdown.register(on_shutdown)
 
-    asyncio.run(run_both())
+    print(f"Starting webhook server on {WEBAPP_HOST}:{WEBAPP_PORT}")
+    web.run_app(app, host=WEBAPP_HOST, port=WEBAPP_PORT)
 
 if __name__ == "__main__":
     main()
