@@ -57,4 +57,4 @@ def check_subscriptions():
             reminders.append(user_id)
     conn.commit()
     conn.close()
-    return expired, reminders  # Ensure no non-printable characters here
+    return expired, reminders

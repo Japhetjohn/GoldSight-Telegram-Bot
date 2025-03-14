@@ -1,112 +1,206 @@
 import asyncio
 import requests
 import os
-import threading
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import Update
-from aiogram.utils.executor import start_webhook
+from aiogram.exceptions import TelegramNetworkError
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request
 
-# Load environment variables
 load_dotenv()
 API_TOKEN = os.getenv("MAIN_BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
-VIP_CHANNEL = os.getenv("VIP_CHANNEL_ID")
+VIP_CHANNEL = int(os.getenv("VIP_CHANNEL_ID"))  # -1002234242428
 ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_KEY")
 
-# Validate environment variables
-if not all([API_TOKEN, ADMIN_ID, VIP_CHANNEL, ALPHA_VANTAGE_KEY]):
-    raise ValueError("Missing required environment variables!")
-
-# Convert VIP_CHANNEL to int
-try:
-    VIP_CHANNEL = int(VIP_CHANNEL)
-except ValueError:
-    raise ValueError("VIP_CHANNEL_ID must be a valid integer!")
-
 bot = Bot(token=API_TOKEN)
-dp = Dispatcher(bot)
-app = FastAPI()
+dp = Dispatcher()
 
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # Example: "https://your-public-url.loca.lt"
-WEBHOOK_PATH = f"/webhook/{API_TOKEN}"
-PORT = int(os.getenv("PORT", 8080))
+class SubscribeState:
+    PLAN = "plan"
+    PROOF = "proof"
 
-@app.post(WEBHOOK_PATH)
-async def handle_update(request: Request):
-    """Receive webhook updates from Telegram."""
-    update = await request.json()
-    telegram_update = Update(**update)
-    await dp.process_update(telegram_update)
-    return {"ok": True}
+user_states = {}
+
+@dp.message()
+async def handle_message(message: types.Message):
+    user_id = message.from_user.id
+    text = message.text.lower()
+    print(f"Main Bot got: {text}")
+
+    if text.startswith("/start"):
+        from database import add_user
+        referral = text.split(maxsplit=1)[1] if len(text.split()) > 1 else None
+        ref_code = add_user(user_id, referral)
+        welcome_msg = (
+            "WELCOME TO GOLDSIGHT 🥇\n\n"
+            "Join our team for top-tier trading signals worldwide 🌎\n\n"
+            "We trade:\n✅XAUUSD\n✅USDJPY\n✅EURUSD\n\n"
+            "Chat with us: @GoldSight\n\n"
+            "NOTE: Trades are our forex perspective\n"
+            "DISCLAIMER: Past performance isn’t future profits\n\n"
+            "Tap below:\n/subscribe - Join VIP\n/referral - Earn 10%\n/terms - Read Terms"
+        )
+        await message.reply(welcome_msg)
+
+    elif text.startswith("/referral"):
+        from database import get_user
+        user = get_user(user_id)
+        if user:
+            await message.reply(f"Referral link: t.me/GoldSightBot?start={user[2]}\nEarn 10% per paid referral!")
+        else:
+            await message.reply("Run /start first!")
+
+    elif text.startswith("/subscribe"):
+        keyboard = types.InlineKeyboardMarkup(
+            inline_keyboard=[
+                [types.InlineKeyboardButton(text="$30 Bi-Weekly", callback_data="plan_biweekly")],
+                [types.InlineKeyboardButton(text="$50 Monthly", callback_data="plan_monthly")]
+            ]
+        )
+        await message.reply("Choose your VIP plan:", reply_markup=keyboard)
+
+    elif text.startswith("/terms"):
+        terms_msg = (
+            "TERMS & CONDITIONS\n"
+            "Past results don’t guarantee future gains. Use risk management.\n"
+            "1. No stolen cards—banned if caught.\n"
+            "2. Valid emails only for access.\n"
+            "3. No disputes/chargebacks—permanent ban.\n"
+            "4. Payment issues? Email vipsubscribepro@gmail.com or @GoldSightSupport.\n"
+            "5. Manually renew subscriptions.\n"
+            "6. Support: vipsubscribepro@gmail.com.\n"
+            "7. Emails about products post-purchase.\n"
+            "8. We may contact you about your sub.\n"
+            "9. Check pinned message in VIP channel.\n\n"
+            "PRIVACY POLICY\n"
+            "No third-party sharing. Forex info post-payment.\n\n"
+            "REFUND POLICY\n"
+            "No refunds after VIP access."
+        )
+        await message.reply(terms_msg)
+
+    elif text.startswith("/approve"):
+        admins = [admin.user.id for admin in await message.chat.get_administrators()]
+        if user_id == ADMIN_ID or user_id in admins:
+            args = text.split()
+            if len(args) != 3 or args[2] not in ["biweekly", "monthly"]:
+                await message.reply("Use: /approve <user_id> <biweekly/monthly>")
+                return
+            from database import approve_vip
+            target_id, plan = int(args[1]), args[2]
+            referrer, commission = approve_vip(target_id, plan)
+            await bot.send_message(target_id, "You’re in! Join VIP: https://t.me/+9CEQlcQ6b1U2Nzdk")
+            await bot.send_message(VIP_CHANNEL, f"New VIP: @{message.from_user.username}")
+            await message.reply(f"Approved {target_id} for {plan}.")
+            if referrer:
+                await bot.send_message(referrer, f"Referral bonus: ${commission}!")
+
+    elif text.startswith("/signal"):
+        admins = [admin.user.id for admin in await message.chat.get_administrators()]
+        if user_id == ADMIN_ID or user_id in admins:
+            signal = text.split(maxsplit=1)[1] if len(text.split()) > 1 else None
+            if not signal:
+                await message.reply("Use: /signal <text>")
+                return
+            await bot.send_message(VIP_CHANNEL, f"📈 Signal: {signal}")
+            await message.reply("Signal sent to VIP!")
+
+    elif user_id in user_states and user_states[user_id]["state"] == SubscribeState.PROOF:
+        if message.photo or message.text:
+            plan = user_states[user_id]["plan"]
+            await bot.send_message(ADMIN_ID, f"User {user_id} sent proof for {plan}:")
+            if message.photo:
+                await bot.send_photo(ADMIN_ID, message.photo[-1].file_id)
+            elif message.text:
+                await bot.send_message(ADMIN_ID, message.text)
+            await message.reply("Proof sent! Awaiting approval.")
+            del user_states[user_id]
+
+    elif message.chat.id == VIP_CHANNEL and not message.from_user.is_bot:
+        from database import get_user
+        user = get_user(user_id)
+        if not user or user[4] != 1:
+            await message.delete()
+            await bot.send_message(user_id, "VIPs only! Use /subscribe.")
+
+@dp.callback_query()
+async def handle_callback(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    print(f"Callback: {callback.data}")
+    if callback.data.startswith("plan_"):
+        plan = callback.data.split("_")[1]
+        await bot.answer_callback_query(callback.id)
+        payment_msg = (
+            f"Pay for {plan.capitalize()} - ${'30' if plan == 'biweekly' else '50'}:\n"
+            "USDT (SOL): 7ryDkprn33twExM1ScdfStcuxTrdDxuJXedTZZH66gAZ\n"
+            "USDT (BSC): 0x59b733f5cc3f2b48c703aef91bd9a531f39d60a0\n"
+            "Send proof here (screenshot/hash).\n"
+            "Support: @GoldSightSupport"
+        )
+        await bot.send_message(user_id, payment_msg)
+        user_states[user_id] = {"state": SubscribeState.PROOF, "plan": plan}
 
 async def fetch_auto_signals():
-    """Fetch signals from Alpha Vantage and send them to VIP_CHANNEL."""
     max_retries = 3
     base_delay = 5
     last_signal = "XAUUSD Latest: N/A (Fallback)"
-
     while True:
         for attempt in range(max_retries):
             try:
                 url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=XAUUSD&apikey={ALPHA_VANTAGE_KEY}"
-                response = requests.get(url, timeout=15)
+                response = requests.get(url, timeout=10)
                 response.raise_for_status()
                 data = response.json()
-
-                print(f"Alpha Vantage Response: {data}")
-
-                if "Global Quote" in data and data["Global Quote"].get("05. price"):
+                if "Global Quote" in data and data["Global Quote"]:
                     price = data["Global Quote"]["05. price"]
-                    signal = f"📈 XAUUSD Latest: {price} (Auto)"
-                    
-                    print(f"Sending to VIP channel ({VIP_CHANNEL}): {signal}")
-                    await bot.send_message(VIP_CHANNEL, signal)  # ✅ Send only to VIP_CHANNEL
+                    signal = f"XAUUSD Latest: {price} (Auto)"
+                    print(f"Sending: {signal}")
+                    await bot.send_message(VIP_CHANNEL, f"📈 {signal}")
                     last_signal = signal
                     break
                 else:
-                    print("🚨 No valid data from Alpha Vantage!")
-                    await bot.send_message(ADMIN_ID, "Alpha Vantage returned empty data!")
+                    print("No data from Alpha Vantage!")
+                    await bot.send_message(ADMIN_ID, "Alpha Vantage issue!")
                     break
-
             except Exception as e:
                 print(f"Signal error (attempt {attempt + 1}): {e}")
-                
                 if attempt == max_retries - 1:
-                    print(f"⚠️ Sending fallback signal to VIP channel ({VIP_CHANNEL}): {last_signal}")
-                    await bot.send_message(VIP_CHANNEL, last_signal)
-                    await bot.send_message(ADMIN_ID, f"Alpha Vantage failed after {max_retries} attempts: {e}")
-                else:
-                    delay = base_delay * (2 ** attempt)
-                    await asyncio.sleep(delay)
-
-        print("Waiting 5 minutes for next signal...")
+                    await bot.send_message(VIP_CHANNEL, f"📈 {last_signal}")
+                    await bot.send_message(ADMIN_ID, "Alpha Vantage down!")
+                await asyncio.sleep(base_delay * (2 ** attempt))
         await asyncio.sleep(300)
 
-async def on_startup():
-    """Set webhook on startup."""
-    webhook_url = f"{WEBHOOK_URL}{WEBHOOK_PATH}"
-    response = requests.get(f"https://api.telegram.org/bot{API_TOKEN}/setWebhook?url={webhook_url}")
-    print("✅ Webhook Set:", response.json())
+async def subscription_task():
+    from database import check_subscriptions
+    while True:
+        expired, reminders = check_subscriptions()
+        for user_id in expired:
+            print(f"Expired: {user_id}")
+            await bot.send_message(user_id, "VIP expired! Renew with /subscribe.")
+        for user_id in reminders:
+            print(f"Reminder: {user_id}")
+            await bot.send_message(user_id, "VIP expires in 2 days! Renew with /subscribe.")
+        await asyncio.sleep(86400)
 
-    try:
-        await bot.send_message(VIP_CHANNEL, "Bot started successfully via Webhook!")
-        print(f"🎉 VIP channel ({VIP_CHANNEL}) is accessible!")
-    except Exception as e:
-        print(f"🚨 Failed to access VIP channel ({VIP_CHANNEL}): {e}")
-        await bot.send_message(ADMIN_ID, f"VIP channel error: {e}")
+async def main():
+    from database import init_db
+    from helpers import start_help_bot
+    init_db()
+    print("GoldSightBot starting...")
+    retries = 5
+    for attempt in range(retries):
+        try:
+            asyncio.create_task(subscription_task())
+            asyncio.create_task(fetch_auto_signals())
+            asyncio.create_task(start_help_bot())
+            await dp.start_polling(bot)
+            break
+        except TelegramNetworkError as e:
+            print(f"Network error (attempt {attempt + 1}/{retries}): {e}")
+            if attempt < retries - 1:
+                await asyncio.sleep(5 * (2 ** attempt))
+            else:
+                print("Max retries reached. Check your network and try again.")
+                raise
 
-    asyncio.create_task(fetch_auto_signals())
-
-async def on_shutdown():
-    """Delete webhook on shutdown."""
-    response = requests.get(f"https://api.telegram.org/bot{API_TOKEN}/deleteWebhook")
-    print("🛑 Webhook Deleted:", response.json())
-
-# Start FastAPI with Uvicorn
 if __name__ == "__main__":
-    import uvicorn
-
-    asyncio.run(on_startup())
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    asyncio.run(main())
