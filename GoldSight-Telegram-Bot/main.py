@@ -11,11 +11,11 @@ API_TOKEN = os.getenv("MAIN_BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 VIP_CHANNEL = int(os.getenv("VIP_CHANNEL_ID"))
 ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_KEY")
-# Near the top of main.py
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # https://nice-snails-rest.loca.lt
 WEBHOOK_PATH = "/webhook"
 WEBAPP_HOST = "0.0.0.0"
-WEBAPP_PORT = 5000  # Changed from 3000 to 5000
+WEBAPP_PORT = 5000  # Using your specified port
+
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
 
@@ -191,8 +191,9 @@ async def on_startup():
     from helpers import start_help_bot
     init_db()
     print("Setting webhook...")
-    await bot.set_webhook(url=f"{WEBHOOK_URL}{WEBHOOK_PATH}")
-    print(f"Webhook set to {WEBHOOK_URL}{WEBHOOK_PATH}")
+    full_webhook_url = f"{WEBHOOK_URL}{WEBHOOK_PATH}"
+    await bot.set_webhook(url=full_webhook_url)
+    print(f"Webhook set to {full_webhook_url}")
     asyncio.create_task(subscription_task())
     asyncio.create_task(fetch_auto_signals())
     asyncio.create_task(start_help_bot())
