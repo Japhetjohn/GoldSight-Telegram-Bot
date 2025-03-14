@@ -8,16 +8,25 @@ from dotenv import load_dotenv
 
 load_dotenv()
 API_TOKEN = os.getenv("MAIN_BOT_TOKEN")
+HELP_BOT_TOKEN = os.getenv("HELP_BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 VIP_CHANNEL = int(os.getenv("VIP_CHANNEL_ID"))
 ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_KEY")
 WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # https://nice-snails-rest.loca.lt
+HELP_WEBHOOK_URL = os.getenv("HELP_WEBHOOK_URL")  # https://nice-snails-rest-help.loca.lt
 WEBHOOK_PATH = "/webhook"
+HELP_WEBHOOK_PATH = "/help_webhook"
 WEBAPP_HOST = "0.0.0.0"
-WEBAPP_PORT = 5000  # Using your specified port
+WEBAPP_PORT = 5000  # Main bot
+HELP_WEBAPP_PORT = 5001  # Help bot
 
-bot = Bot(token=API_TOKEN)
-dp = Dispatcher()
+# Main Bot
+main_bot = Bot(token=API_TOKEN)
+main_dp = Dispatcher()
+
+# Help Bot
+help_bot = Bot(token=HELP_BOT_TOKEN)
+help_dp = Dispatcher()
 
 class SubscribeState:
     PLAN = "plan"
@@ -25,7 +34,8 @@ class SubscribeState:
 
 user_states = {}
 
-@dp.message()
+# Main Bot Handlers
+@main_dp.message()
 async def handle_message(message: types.Message):
     user_id = message.from_user.id
     text = message.text.lower() if message.text else ""
@@ -93,11 +103,11 @@ async def handle_message(message: types.Message):
             from database import approve_vip
             target_id, plan = int(args[1]), args[2]
             referrer, commission = approve_vip(target_id, plan)
-            await bot.send_message(target_id, "You’re in! Join VIP: https://t.me/+9CEQlcQ6b1U2Nzdk")
-            await bot.send_message(VIP_CHANNEL, f"New VIP: @{message.from_user.username or target_id}")
+            await main_bot.send_message(target_id, "You’re in! Join VIP: https://t.me/+9CEQlcQ6b1U2Nzdk")
+            await main_bot.send_message(VIP_CHANNEL, f"New VIP: @{message.from_user.username or target_id}")
             await message.reply(f"Approved {target_id} for {plan}.")
             if referrer:
-                await bot.send_message(referrer, f"Referral bonus: ${commission}!")
+                await main_bot.send_message(referrer, f"Referral bonus: ${commission}!")
 
     elif text.startswith("/signal"):
         admins = [admin.user.id for admin in await message.chat.get_administrators()]
@@ -106,17 +116,17 @@ async def handle_message(message: types.Message):
             if not signal:
                 await message.reply("Use: /signal <text>")
                 return
-            await bot.send_message(VIP_CHANNEL, f"📈 Signal: {signal}")
+            await main_bot.send_message(VIP_CHANNEL, f"📈 Signal: {signal}")
             await message.reply("Signal sent to VIP!")
 
     elif user_id in user_states and user_states[user_id]["state"] == SubscribeState.PROOF:
         if message.photo or message.text:
             plan = user_states[user_id]["plan"]
-            await bot.send_message(ADMIN_ID, f"User {user_id} sent proof for {plan}:")
+            await main_bot.send_message(ADMIN_ID, f"User {user_id} sent proof for {plan}:")
             if message.photo:
-                await bot.send_photo(ADMIN_ID, message.photo[-1].file_id)
+                await main_bot.send_photo(ADMIN_ID, message.photo[-1].file_id)
             elif message.text:
-                await bot.send_message(ADMIN_ID, message.text)
+                await main_bot.send_message(ADMIN_ID, message.text)
             await message.reply("Proof sent! Awaiting approval.")
             del user_states[user_id]
 
@@ -125,15 +135,15 @@ async def handle_message(message: types.Message):
         user = get_user(user_id)
         if not user or user[4] != 1:
             await message.delete()
-            await bot.send_message(user_id, "VIPs only! Use /subscribe.")
+            await main_bot.send_message(user_id, "VIPs only! Use /subscribe.")
 
-@dp.callback_query()
+@main_dp.callback_query()
 async def handle_callback(callback: types.CallbackQuery):
     user_id = callback.from_user.id
     print(f"Callback: {callback.data}")
     if callback.data.startswith("plan_"):
         plan = callback.data.split("_")[1]
-        await bot.answer_callback_query(callback.id)
+        await main_bot.answer_callback_query(callback.id)
         payment_msg = (
             f"Pay for {plan.capitalize()} - ${'30' if plan == 'biweekly' else '50'}:\n"
             "USDT (SOL): 7ryDkprn33twExM1ScdfStcuxTrdDxuJXedTZZH66gAZ\n"
@@ -141,9 +151,23 @@ async def handle_callback(callback: types.CallbackQuery):
             "Send proof here (screenshot/hash).\n"
             "Support: @GoldSightSupport"
         )
-        await bot.send_message(user_id, payment_msg)
+        await main_bot.send_message(user_id, payment_msg)
         user_states[user_id] = {"state": SubscribeState.PROOF, "plan": plan}
 
+# Help Bot Handlers
+@help_dp.message()
+async def handle_help(message: types.Message):
+    text = message.text.lower()
+    print(f"Help Bot got: {text}")
+    if text == "/start":
+        await message.reply("Yo! GoldSight Help Bot here. What’s up?")
+    elif text == "/faq":
+        await message.reply("FAQ:\n- Join? /subscribe\n- Cost? $30 bi-weekly or $50 monthly\n- Chat? @GoldSight\n- Support? @GoldSightSupport")
+    else:
+        await message.reply("Not sure? Try /faq or hit @GoldSightSupport!")
+        await help_bot.send_message(ADMIN_ID, f"Help request from {message.from_user.id}: {text}")
+
+# Shared Tasks
 async def fetch_auto_signals():
     max_retries = 3
     base_delay = 5
@@ -159,18 +183,18 @@ async def fetch_auto_signals():
                     price = data["Global Quote"]["05. price"]
                     signal = f"XAUUSD Latest: {price} (Auto)"
                     print(f"Sending: {signal}")
-                    await bot.send_message(VIP_CHANNEL, f"📈 {signal}")
+                    await main_bot.send_message(VIP_CHANNEL, f"📈 {signal}")
                     last_signal = signal
                     break
                 else:
                     print("No data from Alpha Vantage!")
-                    await bot.send_message(ADMIN_ID, "Alpha Vantage issue!")
+                    await main_bot.send_message(ADMIN_ID, "Alpha Vantage issue!")
                     break
             except Exception as e:
                 print(f"Signal error (attempt {attempt + 1}): {e}")
                 if attempt == max_retries - 1:
-                    await bot.send_message(VIP_CHANNEL, f"📈 {last_signal}")
-                    await bot.send_message(ADMIN_ID, "Alpha Vantage down!")
+                    await main_bot.send_message(VIP_CHANNEL, f"📈 {last_signal}")
+                    await main_bot.send_message(ADMIN_ID, "Alpha Vantage down!")
                 await asyncio.sleep(base_delay * (2 ** attempt))
         await asyncio.sleep(300)
 
@@ -180,40 +204,68 @@ async def subscription_task():
         expired, reminders = check_subscriptions()
         for user_id in expired:
             print(f"Expired: {user_id}")
-            await bot.send_message(user_id, "VIP expired! Renew with /subscribe.")
+            await main_bot.send_message(user_id, "VIP expired! Renew with /subscribe.")
         for user_id in reminders:
             print(f"Reminder: {user_id}")
-            await bot.send_message(user_id, "VIP expires in 2 days! Renew with /subscribe.")
+            await main_bot.send_message(user_id, "VIP expires in 2 days! Renew with /subscribe.")
         await asyncio.sleep(86400)
 
-async def on_startup():
+# Startup and Shutdown
+async def on_main_startup():
     from database import init_db
-    from helpers import start_help_bot
     init_db()
-    print("Setting webhook...")
+    print("Setting main bot webhook...")
     full_webhook_url = f"{WEBHOOK_URL}{WEBHOOK_PATH}"
-    await bot.set_webhook(url=full_webhook_url)
-    print(f"Webhook set to {full_webhook_url}")
+    await main_bot.set_webhook(url=full_webhook_url)
+    print(f"Main bot webhook set to {full_webhook_url}")
     asyncio.create_task(subscription_task())
     asyncio.create_task(fetch_auto_signals())
-    asyncio.create_task(start_help_bot())
 
-async def on_shutdown():
-    print("Shutting down...")
-    await bot.delete_webhook()
-    print("Webhook deleted.")
+async def on_main_shutdown():
+    print("Shutting down main bot...")
+    await main_bot.delete_webhook()
+    print("Main bot webhook deleted.")
+
+async def on_help_startup():
+    print("Setting help bot webhook...")
+    full_webhook_url = f"{HELP_WEBHOOK_URL}{HELP_WEBHOOK_PATH}"
+    await help_bot.set_webhook(url=full_webhook_url)
+    print(f"Help bot webhook set to {full_webhook_url}")
+
+async def on_help_shutdown():
+    print("Shutting down help bot...")
+    await help_bot.delete_webhook()
+    print("Help bot webhook deleted.")
 
 def main():
-    app = web.Application()
-    webhook_handler = SimpleRequestHandler(dispatcher=dp, bot=bot)
-    webhook_handler.register(app, path=WEBHOOK_PATH)
-    setup_application(app, dp, bot=bot)
+    # Main Bot Webhook
+    main_app = web.Application()
+    main_webhook_handler = SimpleRequestHandler(dispatcher=main_dp, bot=main_bot)
+    main_webhook_handler.register(main_app, path=WEBHOOK_PATH)
+    setup_application(main_app, main_dp, bot=main_bot)
 
-    dp.startup.register(on_startup)
-    dp.shutdown.register(on_shutdown)
+    main_dp.startup.register(on_main_startup)
+    main_dp.shutdown.register(on_main_shutdown)
 
-    print(f"Starting webhook server on {WEBAPP_HOST}:{WEBAPP_PORT}")
-    web.run_app(app, host=WEBAPP_HOST, port=WEBAPP_PORT)
+    # Help Bot Webhook
+    help_app = web.Application()
+    help_webhook_handler = SimpleRequestHandler(dispatcher=help_dp, bot=help_bot)
+    help_webhook_handler.register(help_app, path=HELP_WEBHOOK_PATH)
+    setup_application(help_app, help_dp, bot=help_bot)
+
+    help_dp.startup.register(on_help_startup)
+    help_dp.shutdown.register(on_help_shutdown)
+
+    # Run both webhook servers
+    async def run_both():
+        print(f"Starting main bot webhook server on {WEBAPP_HOST}:{WEBAPP_PORT}")
+        print(f"Starting help bot webhook server on {WEBAPP_HOST}:{HELP_WEBAPP_PORT}")
+        await asyncio.gather(
+            web._run_app(main_app, host=WEBAPP_HOST, port=WEBAPP_PORT),
+            web._run_app(help_app, host=WEBAPP_HOST, port=HELP_WEBAPP_PORT)
+        )
+
+    asyncio.run(run_both())
 
 if __name__ == "__main__":
     main()
