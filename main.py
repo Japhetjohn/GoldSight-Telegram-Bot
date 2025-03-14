@@ -2,14 +2,19 @@ import asyncio
 import requests
 import os
 from aiogram import Bot, Dispatcher, types
-from aiogram.exceptions import TelegramNetworkError
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+from aiohttp import web
 from dotenv import load_dotenv
 
 load_dotenv()
 API_TOKEN = os.getenv("MAIN_BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
-VIP_CHANNEL = int(os.getenv("VIP_CHANNEL_ID"))  # -1002234242428
+VIP_CHANNEL = int(os.getenv("VIP_CHANNEL_ID"))
 ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_KEY")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # https://nice-snails-rest.loca.lt
+WEBHOOK_PATH = "/webhook"
+WEBAPP_HOST = "0.0.0.0"
+WEBAPP_PORT = 5000  # Using your specified port
 
 bot = Bot(token=API_TOKEN)
 dp = Dispatcher()
@@ -23,7 +28,7 @@ user_states = {}
 @dp.message()
 async def handle_message(message: types.Message):
     user_id = message.from_user.id
-    text = message.text.lower()
+    text = message.text.lower() if message.text else ""
     print(f"Main Bot got: {text}")
 
     if text.startswith("/start"):
@@ -89,7 +94,7 @@ async def handle_message(message: types.Message):
             target_id, plan = int(args[1]), args[2]
             referrer, commission = approve_vip(target_id, plan)
             await bot.send_message(target_id, "You’re in! Join VIP: https://t.me/+9CEQlcQ6b1U2Nzdk")
-            await bot.send_message(VIP_CHANNEL, f"New VIP: @{message.from_user.username}")
+            await bot.send_message(VIP_CHANNEL, f"New VIP: @{message.from_user.username or target_id}")
             await message.reply(f"Approved {target_id} for {plan}.")
             if referrer:
                 await bot.send_message(referrer, f"Referral bonus: ${commission}!")
@@ -181,26 +186,34 @@ async def subscription_task():
             await bot.send_message(user_id, "VIP expires in 2 days! Renew with /subscribe.")
         await asyncio.sleep(86400)
 
-async def main():
+async def on_startup():
     from database import init_db
     from helpers import start_help_bot
     init_db()
-    print("GoldSightBot starting...")
-    retries = 5
-    for attempt in range(retries):
-        try:
-            asyncio.create_task(subscription_task())
-            asyncio.create_task(fetch_auto_signals())
-            asyncio.create_task(start_help_bot())
-            await dp.start_polling(bot)
-            break
-        except TelegramNetworkError as e:
-            print(f"Network error (attempt {attempt + 1}/{retries}): {e}")
-            if attempt < retries - 1:
-                await asyncio.sleep(5 * (2 ** attempt))
-            else:
-                print("Max retries reached. Check your network and try again.")
-                raise
+    print("Setting webhook...")
+    full_webhook_url = f"{WEBHOOK_URL}{WEBHOOK_PATH}"
+    await bot.set_webhook(url=full_webhook_url)
+    print(f"Webhook set to {full_webhook_url}")
+    asyncio.create_task(subscription_task())
+    asyncio.create_task(fetch_auto_signals())
+    asyncio.create_task(start_help_bot())
+
+async def on_shutdown():
+    print("Shutting down...")
+    await bot.delete_webhook()
+    print("Webhook deleted.")
+
+def main():
+    app = web.Application()
+    webhook_handler = SimpleRequestHandler(dispatcher=dp, bot=bot)
+    webhook_handler.register(app, path=WEBHOOK_PATH)
+    setup_application(app, dp, bot=bot)
+
+    dp.startup.register(on_startup)
+    dp.shutdown.register(on_shutdown)
+
+    print(f"Starting webhook server on {WEBAPP_HOST}:{WEBAPP_PORT}")
+    web.run_app(app, host=WEBAPP_HOST, port=WEBAPP_PORT)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
