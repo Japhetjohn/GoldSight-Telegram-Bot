@@ -16,7 +16,7 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://goldsight-telegram-bot.onrender.
 WEBHOOK_PATH = "/webhook"
 HELP_WEBHOOK_PATH = "/help_webhook"
 WEBAPP_HOST = "0.0.0.0"
-WEBAPP_PORT = int(os.getenv("PORT", 8080))  # Default to 8080, Render overrides with PORT
+WEBAPP_PORT = int(os.getenv("PORT"))  # No default, Render must set PORT
 
 # Main Bot
 main_bot = Bot(token=API_TOKEN)
@@ -277,6 +277,7 @@ def main():
         web.run_app(app, host=WEBAPP_HOST, port=WEBAPP_PORT)
     except Exception as e:
         print(f"Main function failed: {e}")
+        raise  # Raise to ensure Render logs the error
 
 if __name__ == "__main__":
     main()
