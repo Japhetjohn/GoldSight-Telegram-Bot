@@ -55,7 +55,7 @@ async def handle_message(message: types.Message):
         await message.reply(welcome_msg)
 
     elif text.startswith("/referral"):
-        from database import add_user
+        from database import add_user, get_user  # Fixed: Added get_user import
         user = get_user(user_id)
         if user:
             await message.reply(f"Referral link: t.me/GoldSightBot?start={user[2]}\nEarn 10% per paid referral!")
@@ -89,7 +89,11 @@ async def handle_message(message: types.Message):
         await message.reply(terms_msg)
 
     elif text.startswith("/approve"):
-        admins = [admin.user.id for admin in await message.chat.get_administrators()]
+        try:
+            admins = [admin.user.id for admin in await message.chat.get_administrators()]
+        except Exception as e:
+            print(f"Failed to fetch admins: {e}")
+            admins = [ADMIN_ID]  # Fallback to ADMIN_ID only
         if user_id == ADMIN_ID or user_id in admins:
             args = text.split()
             if len(args) != 3 or args[2] not in ["biweekly", "monthly"]:
@@ -105,7 +109,11 @@ async def handle_message(message: types.Message):
                 await main_bot.send_message(referrer, f"Referral bonus: ${commission}!")
 
     elif text.startswith("/signal"):
-        admins = [admin.user.id for admin in await message.chat.get_administrators()]
+        try:
+            admins = [admin.user.id for admin in await message.chat.get_administrators()]
+        except Exception as e:
+            print(f"Failed to fetch admins: {e}")
+            admins = [ADMIN_ID]  # Fallback
         print(f"Admins in chat: {admins}, User ID: {user_id}, Checking against ADMIN_ID: {ADMIN_ID}")
         if user_id == ADMIN_ID or user_id in admins:
             signal = text.split(maxsplit=1)[1] if len(text.split()) > 1 else None
