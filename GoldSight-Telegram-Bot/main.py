@@ -16,7 +16,7 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://goldsight-telegram-bot.onrender.
 WEBHOOK_PATH = "/webhook"
 HELP_WEBHOOK_PATH = "/help_webhook"
 WEBAPP_HOST = "0.0.0.0"
-WEBAPP_PORT = int(os.getenv("PORT", 5000))
+WEBAPP_PORT = int(os.getenv("PORT", 8080))  # Default to 8080, Render overrides with PORT
 
 # Main Bot
 main_bot = Bot(token=API_TOKEN)
@@ -55,7 +55,7 @@ async def handle_message(message: types.Message):
         await message.reply(welcome_msg)
 
     elif text.startswith("/referral"):
-        from database import add_user, get_user  # Fixed: Added get_user import
+        from database import add_user, get_user
         user = get_user(user_id)
         if user:
             await message.reply(f"Referral link: t.me/GoldSightBot?start={user[2]}\nEarn 10% per paid referral!")
@@ -93,7 +93,7 @@ async def handle_message(message: types.Message):
             admins = [admin.user.id for admin in await message.chat.get_administrators()]
         except Exception as e:
             print(f"Failed to fetch admins: {e}")
-            admins = [ADMIN_ID]  # Fallback to ADMIN_ID only
+            admins = [ADMIN_ID]
         if user_id == ADMIN_ID or user_id in admins:
             args = text.split()
             if len(args) != 3 or args[2] not in ["biweekly", "monthly"]:
@@ -113,7 +113,7 @@ async def handle_message(message: types.Message):
             admins = [admin.user.id for admin in await message.chat.get_administrators()]
         except Exception as e:
             print(f"Failed to fetch admins: {e}")
-            admins = [ADMIN_ID]  # Fallback
+            admins = [ADMIN_ID]
         print(f"Admins in chat: {admins}, User ID: {user_id}, Checking against ADMIN_ID: {ADMIN_ID}")
         if user_id == ADMIN_ID or user_id in admins:
             signal = text.split(maxsplit=1)[1] if len(text.split()) > 1 else None
@@ -229,28 +229,32 @@ async def subscription_task():
 
 # Startup and Shutdown
 async def on_startup():
-    from database import init_db
-    init_db()
-    print("Setting main bot webhook...")
-    main_webhook_url = f"{WEBHOOK_URL}{WEBHOOK_PATH}"
-    await main_bot.set_webhook(url=main_webhook_url)
-    print(f"Main bot webhook set to {main_webhook_url}")
-
-    print("Setting help bot webhook...")
-    help_webhook_url = f"{WEBHOOK_URL}{HELP_WEBHOOK_PATH}"
     try:
-        bot_info = await help_bot.get_me()
-        help_bot_username = f"@{bot_info.username}"
-        print(f"Help Bot username fetched: {help_bot_username}")
-    except Exception as e:
-        print(f"Failed to get Help Bot info: {e}")
-        help_bot_username = "@GoldSightHelpBot"  # Fallback
-        print(f"Using fallback username: {help_bot_username}")
-    await help_bot.set_webhook(url=help_webhook_url)
-    print(f"Help bot webhook set to {help_webhook_url}")
+        from database import init_db
+        init_db()
+        print("Setting main bot webhook...")
+        main_webhook_url = f"{WEBHOOK_URL}{WEBHOOK_PATH}"
+        await main_bot.set_webhook(url=main_webhook_url)
+        print(f"Main bot webhook set to {main_webhook_url}")
 
-    asyncio.create_task(subscription_task())
-    asyncio.create_task(fetch_auto_signals())
+        print("Setting help bot webhook...")
+        help_webhook_url = f"{WEBHOOK_URL}{HELP_WEBHOOK_PATH}"
+        try:
+            bot_info = await help_bot.get_me()
+            help_bot_username = f"@{bot_info.username}"
+            print(f"Help Bot username fetched: {help_bot_username}")
+        except Exception as e:
+            print(f"Failed to get Help Bot info: {e}")
+            help_bot_username = "@GoldSightHelpBot"
+            print(f"Using fallback username: {help_bot_username}")
+        await help_bot.set_webhook(url=help_webhook_url)
+        print(f"Help bot webhook set to {help_webhook_url}")
+
+        asyncio.create_task(subscription_task())
+        asyncio.create_task(fetch_auto_signals())
+    except Exception as e:
+        print(f"Startup failed: {e}")
+        raise
 
 async def on_shutdown():
     print("Shutting down...")
@@ -259,24 +263,20 @@ async def on_shutdown():
     print("Webhooks deleted.")
 
 def main():
-    app = web.Application()
-
-    # Main Bot Webhook
-    main_handler = SimpleRequestHandler(dispatcher=main_dp, bot=main_bot)
-    main_handler.register(app, path=WEBHOOK_PATH)
-
-    # Help Bot Webhook
-    help_handler = SimpleRequestHandler(dispatcher=help_dp, bot=help_bot)
-    help_handler.register(app, path=HELP_WEBHOOK_PATH)
-
-    setup_application(app, main_dp, bot=main_bot)
-    setup_application(app, help_dp, bot=help_bot)
-
-    main_dp.startup.register(on_startup)
-    main_dp.shutdown.register(on_shutdown)
-
-    print(f"Starting webhook server on {WEBAPP_HOST}:{WEBAPP_PORT}")
-    web.run_app(app, host=WEBAPP_HOST, port=WEBAPP_PORT)
+    try:
+        app = web.Application()
+        main_handler = SimpleRequestHandler(dispatcher=main_dp, bot=main_bot)
+        main_handler.register(app, path=WEBHOOK_PATH)
+        help_handler = SimpleRequestHandler(dispatcher=help_dp, bot=help_bot)
+        help_handler.register(app, path=HELP_WEBHOOK_PATH)
+        setup_application(app, main_dp, bot=main_bot)
+        setup_application(app, help_dp, bot=help_bot)
+        main_dp.startup.register(on_startup)
+        main_dp.shutdown.register(on_shutdown)
+        print(f"Starting webhook server on {WEBAPP_HOST}:{WEBAPP_PORT}")
+        web.run_app(app, host=WEBAPP_HOST, port=WEBAPP_PORT)
+    except Exception as e:
+        print(f"Main function failed: {e}")
 
 if __name__ == "__main__":
     main()
