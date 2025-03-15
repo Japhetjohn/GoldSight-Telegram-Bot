@@ -16,7 +16,7 @@ WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://goldsight-telegram-bot.onrender.
 WEBHOOK_PATH = "/webhook"
 HELP_WEBHOOK_PATH = "/help_webhook"
 WEBAPP_HOST = "0.0.0.0"
-WEBAPP_PORT = int(os.getenv("PORT"))  # No default, Render must set PORT
+WEBAPP_PORT = int(os.environ["PORT"])  # Render sets PORT, no fallback
 
 # Main Bot
 main_bot = Bot(token=API_TOKEN)
@@ -89,11 +89,7 @@ async def handle_message(message: types.Message):
         await message.reply(terms_msg)
 
     elif text.startswith("/approve"):
-        try:
-            admins = [admin.user.id for admin in await message.chat.get_administrators()]
-        except Exception as e:
-            print(f"Failed to fetch admins: {e}")
-            admins = [ADMIN_ID]
+        admins = [admin.user.id for admin in await message.chat.get_administrators()]
         if user_id == ADMIN_ID or user_id in admins:
             args = text.split()
             if len(args) != 3 or args[2] not in ["biweekly", "monthly"]:
@@ -109,24 +105,16 @@ async def handle_message(message: types.Message):
                 await main_bot.send_message(referrer, f"Referral bonus: ${commission}!")
 
     elif text.startswith("/signal"):
-        try:
-            admins = [admin.user.id for admin in await message.chat.get_administrators()]
-        except Exception as e:
-            print(f"Failed to fetch admins: {e}")
-            admins = [ADMIN_ID]
+        admins = [admin.user.id for admin in await message.chat.get_administrators()]
         print(f"Admins in chat: {admins}, User ID: {user_id}, Checking against ADMIN_ID: {ADMIN_ID}")
         if user_id == ADMIN_ID or user_id in admins:
             signal = text.split(maxsplit=1)[1] if len(text.split()) > 1 else None
             if not signal:
                 await message.reply("Use: /signal <text>")
                 return
-            try:
-                await main_bot.send_message(VIP_CHANNEL, f"📈 Signal: {signal}")
-                print(f"Signal '{signal}' successfully sent to VIP channel: {VIP_CHANNEL}")
-                await message.reply("Signal sent to VIP!")
-            except Exception as e:
-                print(f"Failed to send signal to {VIP_CHANNEL}: {e}")
-                await message.reply(f"Error sending signal: {e}")
+            await main_bot.send_message(VIP_CHANNEL, f"📈 Signal: {signal}")
+            print(f"Signal '{signal}' successfully sent to VIP channel: {VIP_CHANNEL}")
+            await message.reply("Signal sent to VIP!")
         else:
             print(f"User {user_id} not authorized to send signals")
             await message.reply("Admins only!")
@@ -229,55 +217,30 @@ async def subscription_task():
 
 # Startup and Shutdown
 async def on_startup():
-    try:
-        from database import init_db
-        init_db()
-        print("Setting main bot webhook...")
-        main_webhook_url = f"{WEBHOOK_URL}{WEBHOOK_PATH}"
-        await main_bot.set_webhook(url=main_webhook_url)
-        print(f"Main bot webhook set to {main_webhook_url}")
-
-        print("Setting help bot webhook...")
-        help_webhook_url = f"{WEBHOOK_URL}{HELP_WEBHOOK_PATH}"
-        try:
-            bot_info = await help_bot.get_me()
-            help_bot_username = f"@{bot_info.username}"
-            print(f"Help Bot username fetched: {help_bot_username}")
-        except Exception as e:
-            print(f"Failed to get Help Bot info: {e}")
-            help_bot_username = "@GoldSightHelpBot"
-            print(f"Using fallback username: {help_bot_username}")
-        await help_bot.set_webhook(url=help_webhook_url)
-        print(f"Help bot webhook set to {help_webhook_url}")
-
-        asyncio.create_task(subscription_task())
-        asyncio.create_task(fetch_auto_signals())
-    except Exception as e:
-        print(f"Startup failed: {e}")
-        raise
+    from database import init_db
+    init_db()
+    main_webhook_url = f"{WEBHOOK_URL}{WEBHOOK_PATH}"
+    await main_bot.set_webhook(url=main_webhook_url)
+    help_webhook_url = f"{WEBHOOK_URL}{HELP_WEBHOOK_PATH}"
+    await help_bot.set_webhook(url=help_webhook_url)
+    asyncio.create_task(subscription_task())
+    asyncio.create_task(fetch_auto_signals())
 
 async def on_shutdown():
-    print("Shutting down...")
     await main_bot.delete_webhook()
     await help_bot.delete_webhook()
-    print("Webhooks deleted.")
 
 def main():
-    try:
-        app = web.Application()
-        main_handler = SimpleRequestHandler(dispatcher=main_dp, bot=main_bot)
-        main_handler.register(app, path=WEBHOOK_PATH)
-        help_handler = SimpleRequestHandler(dispatcher=help_dp, bot=help_bot)
-        help_handler.register(app, path=HELP_WEBHOOK_PATH)
-        setup_application(app, main_dp, bot=main_bot)
-        setup_application(app, help_dp, bot=help_bot)
-        main_dp.startup.register(on_startup)
-        main_dp.shutdown.register(on_shutdown)
-        print(f"Starting webhook server on {WEBAPP_HOST}:{WEBAPP_PORT}")
-        web.run_app(app, host=WEBAPP_HOST, port=WEBAPP_PORT)
-    except Exception as e:
-        print(f"Main function failed: {e}")
-        raise  # Raise to ensure Render logs the error
+    app = web.Application()
+    main_handler = SimpleRequestHandler(dispatcher=main_dp, bot=main_bot)
+    main_handler.register(app, path=WEBHOOK_PATH)
+    help_handler = SimpleRequestHandler(dispatcher=help_dp, bot=help_bot)
+    help_handler.register(app, path=HELP_WEBHOOK_PATH)
+    setup_application(app, main_dp, bot=main_bot)
+    setup_application(app, help_dp, bot=help_bot)
+    main_dp.startup.register(on_startup)
+    main_dp.shutdown.register(on_shutdown)
+    web.run_app(app, host=WEBAPP_HOST, port=WEBAPP_PORT)
 
 if __name__ == "__main__":
     main()
