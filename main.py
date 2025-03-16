@@ -1,23 +1,40 @@
 import asyncio
 import requests
 import os
+import sys
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import Message
 from aiogram.filters import Command
 from aiohttp import web
 from dotenv import load_dotenv
 
+# Log startup
+print("Starting main.py...")
+
 # Load environment variables
 load_dotenv()
 API_TOKEN = os.getenv("MAIN_BOT_TOKEN")
 HELP_BOT_TOKEN = os.getenv("HELP_BOT_TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID"))
-VIP_CHANNEL = int(os.getenv("VIP_CHANNEL_ID"))
+ADMIN_ID = os.getenv("ADMIN_ID")
+VIP_CHANNEL = os.getenv("VIP_CHANNEL_ID")
 ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_KEY")
 
-print(f"Env vars loaded: MAIN_BOT_TOKEN={API_TOKEN[:5]}..., HELP_BOT_TOKEN={HELP_BOT_TOKEN[:5]}..., ADMIN_ID={ADMIN_ID}, VIP_CHANNEL={VIP_CHANNEL}")
+print(f"Env vars: MAIN_BOT_TOKEN={API_TOKEN[:5] if API_TOKEN else 'None'}..., HELP_BOT_TOKEN={HELP_BOT_TOKEN[:5] if HELP_BOT_TOKEN else 'None'}..., ADMIN_ID={ADMIN_ID}, VIP_CHANNEL={VIP_CHANNEL}, ALPHA_VANTAGE_KEY={ALPHA_VANTAGE_KEY[:5] if ALPHA_VANTAGE_KEY else 'None'}...")
+
+# Validate critical env vars
+if not all([API_TOKEN, HELP_BOT_TOKEN, ADMIN_ID, VIP_CHANNEL, ALPHA_VANTAGE_KEY]):
+    print("Error: Missing critical env vars!")
+    sys.exit(1)
+
+try:
+    ADMIN_ID = int(ADMIN_ID)
+    VIP_CHANNEL = int(VIP_CHANNEL)
+except ValueError as e:
+    print(f"Error: ADMIN_ID or VIP_CHANNEL not integers - {e}")
+    sys.exit(1)
 
 # Initialize bots
+print("Initializing bots...")
 main_bot = Bot(token=API_TOKEN)
 main_dp = Dispatcher()
 help_bot = Bot(token=HELP_BOT_TOKEN)
@@ -25,7 +42,7 @@ help_dp = Dispatcher()
 
 # Fake server setup
 WEBAPP_HOST = "0.0.0.0"
-WEBAPP_PORT = int(os.environ.get("PORT", 10000))  # Fallback to 10000 if PORT not set
+WEBAPP_PORT = int(os.environ.get("PORT", 10000))  # Fallback to 10000
 print(f"Setting up fake server on {WEBAPP_HOST}:{WEBAPP_PORT}")
 
 async def fake_handler(request):
@@ -239,8 +256,13 @@ async def subscription_task():
 
 # Startup and Shutdown
 async def on_startup():
-    from database import init_db
-    init_db()
+    print("Starting up bots...")
+    try:
+        from database import init_db
+        init_db()
+    except Exception as e:
+        print(f"Database init failed: {e}")
+        sys.exit(1)
     print(f"✅ Main bot and help bot starting with polling, fake server on {WEBAPP_PORT}...")
     asyncio.create_task(subscription_task())
     asyncio.create_task(fetch_auto_signals())
@@ -257,11 +279,15 @@ async def main():
     help_dp.shutdown.register(on_shutdown)
 
     print(f"🚀 Starting polling and fake server on {WEBAPP_HOST}:{WEBAPP_PORT}...")
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, WEBAPP_HOST, WEBAPP_PORT)
-    await site.start()
-    print(f"Fake server running on {WEBAPP_HOST}:{WEBAPP_PORT}")
+    try:
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, WEBAPP_HOST, WEBAPP_PORT)
+        await site.start()
+        print(f"Fake server running on {WEBAPP_HOST}:{WEBAPP_PORT}")
+    except Exception as e:
+        print(f"Failed to start fake server: {e}")
+        sys.exit(1)
 
     await asyncio.gather(
         main_dp.start_polling(main_bot),
@@ -269,4 +295,5 @@ async def main():
     )
 
 if __name__ == "__main__":
+    print("Running asyncio...")
     asyncio.run(main())
