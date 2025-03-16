@@ -221,18 +221,21 @@ async def main():
         site = web.TCPSite(runner, WEBAPP_HOST, WEBAPP_PORT)
         await site.start()
         log_print(f"Server live on {WEBAPP_HOST}:{WEBAPP_PORT}!")
-        # Give Render a sec to see the port
-        await asyncio.sleep(1)
+        await asyncio.sleep(1)  # Let Render catch the port
     except Exception as e:
         log_print(f"Server failed: {e}")
         traceback.print_exc()
         sys.exit(1)
 
     log_print("Starting polling...")
-    await asyncio.gather(
-        main_dp.start_polling(main_bot),
-        help_dp.start_polling(help_bot)
-    )
+    try:
+        await asyncio.gather(
+            main_dp.start_polling(main_bot, handle_errors=True),
+            help_dp.start_polling(help_bot, handle_errors=True)
+        )
+    except Exception as e:
+        log_print(f"Polling failed: {e}")
+        traceback.print_exc()
 
 if __name__ == "__main__":
     log_print("Running asyncio...")
