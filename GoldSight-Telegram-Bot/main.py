@@ -35,9 +35,9 @@ except ValueError as e:
     print(f"Error: ADMIN_ID or VIP_CHANNEL not integers - {e}")
     sys.exit(1)
 
-# Fake server setup (priority: bind port ASAP)
+# Server setup - bind port first
 WEBAPP_HOST = "0.0.0.0"
-WEBAPP_PORT = int(os.environ.get("PORT", 10000))  # Fallback to 10000
+WEBAPP_PORT = int(os.environ.get("PORT", 8080))  # Fallback to 8080
 print(f"Binding server to {WEBAPP_HOST}:{WEBAPP_PORT}...")
 
 async def fake_handler(request):
@@ -59,6 +59,12 @@ except Exception as e:
     traceback.print_exc()
     sys.exit(1)
 
+class SubscribeState:
+    PLAN = "plan"
+    PROOF = "proof"
+
+user_states = {}
+
 # Main Bot Handlers
 @main_dp.message()
 async def handle_message(message: Message):
@@ -68,12 +74,35 @@ async def handle_message(message: Message):
 
     if text.startswith("/start"):
         welcome_msg = (
-            "WELCOME TO GOLDSIGHT 🥇\n"
-            "Top-tier trading signals worldwide 🌎\n"
-            "Chat: @GoldSight\n"
-            "Help: @GoldSightHelpBot"
+            "WELCOME TO GOLDSIGHT 🥇\n\n"
+            "Join our team for top-tier trading signals worldwide 🌎\n\n"
+            "We trade:\n✅XAUUSD\n✅USDJPY\n✅EURUSD\n\n"
+            "Chat with us: @GoldSight\n"
+            "Need help? Hit up @GoldSightHelpBot\n\n"
+            "Tap below:\n/subscribe - Join VIP\n/referral - Earn 10%\n/terms - Read Terms"
         )
         await message.reply(welcome_msg)
+
+    elif text.startswith("/referral"):
+        await message.reply("Referral link coming soon! Earn 10% per paid referral.")
+
+    elif text.startswith("/subscribe"):
+        keyboard = types.InlineKeyboardMarkup(
+            inline_keyboard=[
+                [types.InlineKeyboardButton(text="$30 Bi-Weekly", callback_data="plan_biweekly")],
+                [types.InlineKeyboardButton(text="$50 Monthly", callback_data="plan_monthly")]
+            ]
+        )
+        await message.reply("Choose your VIP plan:", reply_markup=keyboard)
+
+    elif text.startswith("/terms"):
+        terms_msg = (
+            "TERMS & CONDITIONS\n"
+            "Past results don’t guarantee future gains.\n"
+            "1. No stolen cards—banned if caught.\n"
+            "2. No refunds after VIP access."
+        )
+        await message.reply(terms_msg)
 
     elif text.startswith("/signal"):
         try:
@@ -97,6 +126,33 @@ async def handle_message(message: Message):
             print(f"User {user_id} not authorized")
             await message.reply("Admins only!")
 
+    elif user_id in user_states and user_states[user_id]["state"] == SubscribeState.PROOF:
+        if message.photo or message.text:
+            plan = user_states[user_id]["plan"]
+            await main_bot.send_message(ADMIN_ID, f"User {user_id} sent proof for {plan}:")
+            if message.photo:
+                await main_bot.send_photo(ADMIN_ID, message.photo[-1].file_id)
+            elif message.text:
+                await main_bot.send_message(ADMIN_ID, message.text)
+            await message.reply("Proof sent! Awaiting approval.")
+            del user_states[user_id]
+
+@main_dp.callback_query()
+async def handle_callback(callback: types.CallbackQuery):
+    user_id = callback.from_user.id
+    print(f"Callback: {callback.data}")
+    if callback.data.startswith("plan_"):
+        plan = callback.data.split("_")[1]
+        await main_bot.answer_callback_query(callback.id)
+        payment_msg = (
+            f"Pay for {plan.capitalize()} - ${'30' if plan == 'biweekly' else '50'}:\n"
+            "USDT (SOL): 7ryDkprn33twExM1ScdfStcuxTrdDxuJXedTZZH66gAZ\n"
+            "Send proof here (screenshot/hash).\n"
+            "Support: @GoldSightSupport"
+        )
+        await main_bot.send_message(user_id, payment_msg)
+        user_states[user_id] = {"state": SubscribeState.PROOF, "plan": plan}
+
 # Help Bot Handlers
 @help_dp.message()
 async def handle_help(message: Message):
@@ -104,6 +160,11 @@ async def handle_help(message: Message):
     print(f"Help Bot got: {text}")
     if text == "/start":
         await message.reply("Yo! GoldSight Help Bot here. What’s up?")
+    elif text == "/faq":
+        await message.reply("FAQ:\n- Join? /subscribe\n- Cost? $30 bi-weekly or $50 monthly\n- Support? @GoldSightSupport")
+    else:
+        await message.reply("Try /faq or hit @GoldSightSupport!")
+        await help_bot.send_message(ADMIN_ID, f"Help request from {message.from_user.id}: {text}")
 
 # Auto Signals
 async def fetch_auto_signals():
@@ -132,7 +193,7 @@ async def fetch_auto_signals():
                 print(f"Auto signal error (attempt {attempt + 1}): {e}")
                 if attempt == max_retries - 1:
                     await main_bot.send_message(VIP_CHANNEL, f"📈 {last_signal}")
-        await asyncio.sleep(300)  # Every 5 mins
+        await asyncio.sleep(300)
 
 # Startup and Shutdown
 async def on_startup():
@@ -154,11 +215,16 @@ async def main():
 
     # Start server first
     print(f"Starting server on {WEBAPP_HOST}:{WEBAPP_PORT}...")
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, WEBAPP_HOST, WEBAPP_PORT)
-    await site.start()
-    print(f"Server live on {WEBAPP_HOST}:{WEBAPP_PORT}!")
+    try:
+        runner = web.AppRunner(app)
+        await runner.setup()
+        site = web.TCPSite(runner, WEBAPP_HOST, WEBAPP_PORT)
+        await site.start()
+        print(f"Server live on {WEBAPP_HOST}:{WEBAPP_PORT}!")
+    except Exception as e:
+        print(f"Server failed: {e}")
+        traceback.print_exc()
+        sys.exit(1)
 
     # Then poll bots
     print("Starting polling...")
