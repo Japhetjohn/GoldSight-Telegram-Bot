@@ -2,27 +2,22 @@ import asyncio
 import requests
 import os
 from aiogram import Bot, Dispatcher, types
-from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
-from aiohttp import web
+from aiogram.types import Message
+from aiogram.filters import Command
 from dotenv import load_dotenv
 
+# Load environment variables
 load_dotenv()
 API_TOKEN = os.getenv("MAIN_BOT_TOKEN")
 HELP_BOT_TOKEN = os.getenv("HELP_BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 VIP_CHANNEL = int(os.getenv("VIP_CHANNEL_ID"))
 ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_KEY")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL", "https://goldsight-telegram-bot.onrender.com")
-WEBHOOK_PATH = "/webhook"
-HELP_WEBHOOK_PATH = "/help_webhook"
-WEBAPP_HOST = "0.0.0.0"
-WEBAPP_PORT = int(os.getenv("PORT", 5000))
 
-# Main Bot
+# Initialize bots
 main_bot = Bot(token=API_TOKEN)
 main_dp = Dispatcher()
 
-# Help Bot
 help_bot = Bot(token=HELP_BOT_TOKEN)
 help_dp = Dispatcher()
 
@@ -34,7 +29,7 @@ user_states = {}
 
 # Main Bot Handlers
 @main_dp.message()
-async def handle_message(message: types.Message):
+async def handle_message(message: Message):
     user_id = message.from_user.id
     text = message.text.lower() if message.text else ""
     print(f"Main Bot got: {text}")
@@ -47,7 +42,8 @@ async def handle_message(message: types.Message):
             "WELCOME TO GOLDSIGHT 🥇\n\n"
             "Join our team for top-tier trading signals worldwide 🌎\n\n"
             "We trade:\n✅XAUUSD\n✅USDJPY\n✅EURUSD\n\n"
-            "Chat with us: @GoldSight\n\n"
+            "Chat with us: @GoldSight\n"
+            "Need help? Hit up @GoldSightHelpBot\n\n"
             "NOTE: Trades are our forex perspective\n"
             "DISCLAIMER: Past performance isn’t future profits\n\n"
             "Tap below:\n/subscribe - Join VIP\n/referral - Earn 10%\n/terms - Read Terms"
@@ -55,7 +51,7 @@ async def handle_message(message: types.Message):
         await message.reply(welcome_msg)
 
     elif text.startswith("/referral"):
-        from database import add_user
+        from database import add_user, get_user
         user = get_user(user_id)
         if user:
             await message.reply(f"Referral link: t.me/GoldSightBot?start={user[2]}\nEarn 10% per paid referral!")
@@ -75,12 +71,11 @@ async def handle_message(message: types.Message):
         terms_msg = (
             "TERMS & CONDITIONS\n"
             "Past results don’t guarantee future gains. Use risk management.\n"
-            "1. No stolen cards—banned if caught.\n"
-            "2. No disputes/chargebacks—permanent ban.\n"
-            "3. Payment issues? contact @GoldSightSupport.\n"
-            "4. Manually renew subscriptions.\n"
-            "5. We may contact you about your sub.\n"
-            "6. Check pinned message in VIP channel.\n\n"
+            "1. No disputes/chargebacks—permanent ban.\n"
+            "2. Payment issues? contact @GoldSightSupport.\n"
+            "3. Manually renew subscriptions.\n"
+            "4. We may contact you about your sub.\n"
+            "5. Check pinned message in VIP channel.\n\n"
             "PRIVACY POLICY\n"
             "No third-party sharing. Forex info post-payment.\n\n"
             "REFUND POLICY\n"
@@ -89,7 +84,11 @@ async def handle_message(message: types.Message):
         await message.reply(terms_msg)
 
     elif text.startswith("/approve"):
-        admins = [admin.user.id for admin in await message.chat.get_administrators()]
+        try:
+            admins = [admin.user.id for admin in await message.chat.get_administrators()]
+        except Exception as e:
+            print(f"Failed to fetch admins: {e}")
+            admins = [ADMIN_ID]
         if user_id == ADMIN_ID or user_id in admins:
             args = text.split()
             if len(args) != 3 or args[2] not in ["biweekly", "monthly"]:
@@ -105,7 +104,11 @@ async def handle_message(message: types.Message):
                 await main_bot.send_message(referrer, f"Referral bonus: ${commission}!")
 
     elif text.startswith("/signal"):
-        admins = [admin.user.id for admin in await message.chat.get_administrators()]
+        try:
+            admins = [admin.user.id for admin in await message.chat.get_administrators()]
+        except Exception as e:
+            print(f"Failed to fetch admins: {e}")
+            admins = [ADMIN_ID]
         print(f"Admins in chat: {admins}, User ID: {user_id}, Checking against ADMIN_ID: {ADMIN_ID}")
         if user_id == ADMIN_ID or user_id in admins:
             signal = text.split(maxsplit=1)[1] if len(text.split()) > 1 else None
@@ -163,7 +166,7 @@ async def handle_callback(callback: types.CallbackQuery):
 
 # Help Bot Handlers
 @help_dp.message()
-async def handle_help(message: types.Message):
+async def handle_help(message: Message):
     text = message.text.lower()
     print(f"Help Bot got: {text}")
     if text == "/start":
@@ -223,52 +226,28 @@ async def subscription_task():
 async def on_startup():
     from database import init_db
     init_db()
-    print("Setting main bot webhook...")
-    main_webhook_url = f"{WEBHOOK_URL}{WEBHOOK_PATH}"
-    await main_bot.set_webhook(url=main_webhook_url)
-    print(f"Main bot webhook set to {main_webhook_url}")
-
-    print("Setting help bot webhook...")
-    help_webhook_url = f"{WEBHOOK_URL}{HELP_WEBHOOK_PATH}"
-    try:
-        bot_info = await help_bot.get_me()
-        help_bot_username = f"@{bot_info.username}"
-        print(f"Help Bot username fetched: {help_bot_username}")
-    except Exception as e:
-        print(f"Failed to get Help Bot info: {e}")
-        help_bot_username = "@GoldSightHelpBot"  # Fallback
-        print(f"Using fallback username: {help_bot_username}")
-    await help_bot.set_webhook(url=help_webhook_url)
-    print(f"Help bot webhook set to {help_webhook_url}")
-
+    print("✅ Main bot and help bot starting with polling...")
     asyncio.create_task(subscription_task())
     asyncio.create_task(fetch_auto_signals())
 
 async def on_shutdown():
-    print("Shutting down...")
-    await main_bot.delete_webhook()
-    await help_bot.delete_webhook()
-    print("Webhooks deleted.")
+    print("🛑 Shutting down bots...")
+    await main_bot.session.close()
+    await help_bot.session.close()
 
-def main():
-    app = web.Application()
-
-    # Main Bot Webhook
-    main_handler = SimpleRequestHandler(dispatcher=main_dp, bot=main_bot)
-    main_handler.register(app, path=WEBHOOK_PATH)
-
-    # Help Bot Webhook
-    help_handler = SimpleRequestHandler(dispatcher=help_dp, bot=help_bot)
-    help_handler.register(app, path=HELP_WEBHOOK_PATH)
-
-    setup_application(app, main_dp, bot=main_bot)
-    setup_application(app, help_dp, bot=help_bot)
-
+async def main():
+    # Register startup/shutdown hooks
     main_dp.startup.register(on_startup)
     main_dp.shutdown.register(on_shutdown)
+    help_dp.startup.register(on_startup)
+    help_dp.shutdown.register(on_shutdown)
 
-    print(f"Starting webhook server on {WEBAPP_HOST}:{WEBAPP_PORT}")
-    web.run_app(app, host=WEBAPP_HOST, port=WEBAPP_PORT)
+    # Start polling for both bots concurrently
+    print("🚀 Starting polling for main bot and help bot...")
+    await asyncio.gather(
+        main_dp.start_polling(main_bot),
+        help_dp.start_polling(help_bot)
+    )
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
