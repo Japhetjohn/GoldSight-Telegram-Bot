@@ -4,6 +4,7 @@ import os
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import Message
 from aiogram.filters import Command
+from aiohttp import web
 from dotenv import load_dotenv
 
 # Load environment variables
@@ -20,6 +21,16 @@ main_dp = Dispatcher()
 
 help_bot = Bot(token=HELP_BOT_TOKEN)
 help_dp = Dispatcher()
+
+# Fake server setup
+WEBAPP_HOST = "0.0.0.0"
+WEBAPP_PORT = int(os.environ["PORT"])  # Render sets this
+
+async def fake_handler(request):
+    return web.Response(text="Yo, I’m here—just chilling.")
+
+app = web.Application()
+app.add_routes([web.get('/', fake_handler)])
 
 class SubscribeState:
     PLAN = "plan"
@@ -71,11 +82,12 @@ async def handle_message(message: Message):
         terms_msg = (
             "TERMS & CONDITIONS\n"
             "Past results don’t guarantee future gains. Use risk management.\n"
-            "1. No disputes/chargebacks—permanent ban.\n"
-            "2. Payment issues? contact @GoldSightSupport.\n"
-            "3. Manually renew subscriptions.\n"
-            "4. We may contact you about your sub.\n"
-            "5. Check pinned message in VIP channel.\n\n"
+            "1. No stolen cards—banned if caught.\n"
+            "2. No disputes/chargebacks—permanent ban.\n"
+            "3. Payment issues? contact @GoldSightSupport.\n"
+            "4. Manually renew subscriptions.\n"
+            "5. We may contact you about your sub.\n"
+            "6. Check pinned message in VIP channel.\n\n"
             "PRIVACY POLICY\n"
             "No third-party sharing. Forex info post-payment.\n\n"
             "REFUND POLICY\n"
@@ -226,7 +238,7 @@ async def subscription_task():
 async def on_startup():
     from database import init_db
     init_db()
-    print("✅ Main bot and help bot starting with polling...")
+    print(f"✅ Main bot and help bot starting with polling, fake server on {WEBAPP_PORT}...")
     asyncio.create_task(subscription_task())
     asyncio.create_task(fetch_auto_signals())
 
@@ -242,8 +254,13 @@ async def main():
     help_dp.startup.register(on_startup)
     help_dp.shutdown.register(on_shutdown)
 
-    # Start polling for both bots concurrently
-    print("🚀 Starting polling for main bot and help bot...")
+    # Start fake server and polling concurrently
+    print(f"🚀 Starting polling and fake server on {WEBAPP_HOST}:{WEBAPP_PORT}...")
+    runner = web.AppRunner(app)
+    await runner.setup()
+    site = web.TCPSite(runner, WEBAPP_HOST, WEBAPP_PORT)
+    await site.start()
+
     await asyncio.gather(
         main_dp.start_polling(main_bot),
         help_dp.start_polling(help_bot)
