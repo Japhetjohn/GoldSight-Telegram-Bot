@@ -175,6 +175,7 @@ async def fetch_auto_signals():
                 response = requests.get(url, timeout=10)
                 response.raise_for_status()
                 data = response.json()
+                log_print(f"Alpha Vantage response: {data}")
                 if "Time Series FX (Daily)" in data and data["Time Series FX (Daily)"]:
                     latest_date = max(data["Time Series FX (Daily)"].keys())
                     price = data["Time Series FX (Daily)"][latest_date]["4. close"]
@@ -184,7 +185,7 @@ async def fetch_auto_signals():
                     log_print(f"Signal '{signal}' sent to {VIP_CHANNEL}")
                     break
                 else:
-                    log_print("No valid data from Alpha Vantage!")
+                    log_print("No valid time series data from Alpha Vantage!")
                     break
             except Exception as e:
                 log_print(f"Auto signal error (attempt {attempt + 1}): {e}")
