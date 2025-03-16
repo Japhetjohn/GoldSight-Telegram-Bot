@@ -11,10 +11,9 @@ from aiohttp import web
 from dotenv import load_dotenv
 
 # Setup logging
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(message)s", force=True)
 logger = logging.getLogger(__name__)
 
-# Force print with flush
 def log_print(*args, **kwargs):
     print(*args, flush=True, **kwargs)
     logger.info(" ".join(map(str, args)))
@@ -171,13 +170,14 @@ async def fetch_auto_signals():
     while True:
         for attempt in range(max_retries):
             try:
-                url = f"https://www.alphavantage.co/query?function=GLOBAL_QUOTE&symbol=XAUUSD&apikey={ALPHA_VANTAGE_KEY}"
+                url = f"https://www.alphavantage.co/query?function=FX_DAILY&from_symbol=XAU&to_symbol=USD&apikey={ALPHA_VANTAGE_KEY}"
                 log_print(f"Fetching signal from: {url}")
                 response = requests.get(url, timeout=10)
                 response.raise_for_status()
                 data = response.json()
-                if "Global Quote" in data and data["Global Quote"]:
-                    price = data["Global Quote"]["05. price"]
+                if "Time Series FX (Daily)" in data and data["Time Series FX (Daily)"]:
+                    latest_date = max(data["Time Series FX (Daily)"].keys())
+                    price = data["Time Series FX (Daily)"][latest_date]["4. close"]
                     signal = f"XAUUSD Latest: {price} (Auto)"
                     await main_bot.send_message(VIP_CHANNEL, f"📈 {signal}")
                     last_signal = signal
@@ -210,7 +210,6 @@ async def main():
     help_dp.startup.register(on_startup)
     help_dp.shutdown.register(on_shutdown)
 
-    # Start server
     log_print(f"Starting server on {WEBAPP_HOST}:{WEBAPP_PORT}...")
     try:
         runner = web.AppRunner(app)
@@ -223,7 +222,6 @@ async def main():
         traceback.print_exc()
         sys.exit(1)
 
-    # Poll bots
     log_print("Starting polling...")
     await asyncio.gather(
         main_dp.start_polling(main_bot),
