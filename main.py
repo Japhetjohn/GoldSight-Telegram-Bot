@@ -186,6 +186,9 @@ async def fetch_auto_signals():
                     break
                 else:
                     log_print("No valid time series data from Alpha Vantage!")
+                    if "Information" in data and "rate limit" in data["Information"]:
+                        log_print("Rate limit hit, using fallback signal.")
+                        await main_bot.send_message(VIP_CHANNEL, f"📈 {last_signal}")
                     break
             except Exception as e:
                 log_print(f"Auto signal error (attempt {attempt + 1}): {e}")
@@ -218,6 +221,8 @@ async def main():
         site = web.TCPSite(runner, WEBAPP_HOST, WEBAPP_PORT)
         await site.start()
         log_print(f"Server live on {WEBAPP_HOST}:{WEBAPP_PORT}!")
+        # Give Render a sec to see the port
+        await asyncio.sleep(1)
     except Exception as e:
         log_print(f"Server failed: {e}")
         traceback.print_exc()
