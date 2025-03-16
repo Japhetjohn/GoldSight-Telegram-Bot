@@ -15,18 +15,21 @@ ADMIN_ID = int(os.getenv("ADMIN_ID"))
 VIP_CHANNEL = int(os.getenv("VIP_CHANNEL_ID"))
 ALPHA_VANTAGE_KEY = os.getenv("ALPHA_VANTAGE_KEY")
 
+print(f"Env vars loaded: MAIN_BOT_TOKEN={API_TOKEN[:5]}..., HELP_BOT_TOKEN={HELP_BOT_TOKEN[:5]}..., ADMIN_ID={ADMIN_ID}, VIP_CHANNEL={VIP_CHANNEL}")
+
 # Initialize bots
 main_bot = Bot(token=API_TOKEN)
 main_dp = Dispatcher()
-
 help_bot = Bot(token=HELP_BOT_TOKEN)
 help_dp = Dispatcher()
 
 # Fake server setup
 WEBAPP_HOST = "0.0.0.0"
-WEBAPP_PORT = int(os.environ["PORT"])  # Render sets this
+WEBAPP_PORT = int(os.environ.get("PORT", 10000))  # Fallback to 10000 if PORT not set
+print(f"Setting up fake server on {WEBAPP_HOST}:{WEBAPP_PORT}")
 
 async def fake_handler(request):
+    print("Fake server hit!")
     return web.Response(text="Yo, I’m here—just chilling.")
 
 app = web.Application()
@@ -248,18 +251,17 @@ async def on_shutdown():
     await help_bot.session.close()
 
 async def main():
-    # Register startup/shutdown hooks
     main_dp.startup.register(on_startup)
     main_dp.shutdown.register(on_shutdown)
     help_dp.startup.register(on_startup)
     help_dp.shutdown.register(on_shutdown)
 
-    # Start fake server and polling concurrently
     print(f"🚀 Starting polling and fake server on {WEBAPP_HOST}:{WEBAPP_PORT}...")
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, WEBAPP_HOST, WEBAPP_PORT)
     await site.start()
+    print(f"Fake server running on {WEBAPP_HOST}:{WEBAPP_PORT}")
 
     await asyncio.gather(
         main_dp.start_polling(main_bot),
