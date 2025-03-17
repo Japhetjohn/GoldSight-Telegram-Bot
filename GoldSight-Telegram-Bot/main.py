@@ -49,7 +49,7 @@ log_print(f"Binding server to {WEBAPP_HOST}:{WEBAPP_PORT}...")
 
 async def fake_handler(request):
     log_print("Server hit: /")
-    return web.Response(text="Yo, I’m live—GoldSight running!")
+    return web.Response(text="live GoldSight running!")
 
 app = web.Application()
 app.add_routes([web.get('/', fake_handler)])
@@ -103,7 +103,7 @@ async def handle_message(message: Message):
         await message.reply("Choose your VIP plan:", reply_markup=keyboard)
 
     elif text.startswith("/terms"):
-        await message.reply("TERMS & CONDITIONS\nPast results don’t guarantee future gains.\n1. No stolen cards—banned if caught.\n2. No refunds after VIP access.")
+        await message.reply("TERMS & CONDITIONS\n1. Past results don’t guarantee future gains.\n2. No refunds after VIP access.\n3. No disputes or chargebacks, you’ll be banned forever.\n4. Payment issues?  message @GoldSightSupport.\n5. Subscriptions aren’t automatic—renew manually when expired.\n6. use @Goldsighthelpbot incase of any issues.\n7. We can contact you anytime about your subscription.\n8. Read the pinned message in the VIP channel once in.\n\nPRIVACY POLICY\nWe don’t share your info with third parties. You might get forex info from us after payment.\n\nREFUND POLICY\nNo refunds after joining the channel.")
 
     elif text.startswith("/signal"):
         try:
@@ -144,6 +144,10 @@ async def handle_callback(callback: types.CallbackQuery):
         payment_msg = (
             f"Pay for {plan.capitalize()} - ${'30' if plan == 'biweekly' else '50'}:\n"
             "USDT (SOL): 7ryDkprn33twExM1ScdfStcuxTrdDxuJXedTZZH66gAZ\n"
+            "Usdt (BSC Bnb): 0x59b733f5cc3f2b48c703aef91bd9a531f39d60a0\n"
+            "Usdt (trc20): TH6W67eY7XtQusdrWGProevkXsQV6C9iC8\n"
+            "Usdt (Eth): 0x59b733f5cc3f2b48c703aef91bd9a531f39d60a0\n"
+            "Usdt (TON): 0x59b733f5cc3f2b48c703aef91bd9a531f39d60a0\n"
             "Send proof here (screenshot/hash).\n"
             "Support: @GoldSightSupport"
         )
