@@ -205,13 +205,13 @@ async def handle_help(message: Message):
 async def on_startup():
     log_print("Starting up bots...")
     log_print(f"✅ Bots polling, server on {WEBAPP_PORT}!")
-    # Commented out auto signals task
-    # asyncio.create_task(fetch_auto_signals())
 
 async def on_shutdown():
     log_print("🛑 Shutting down bots...")
     await main_bot.session.close()
+    log_print("Main bot session closed.")
     await help_bot.session.close()
+    log_print("Help bot session closed.")
 
 async def main():
     log_print("Entering main()...")
