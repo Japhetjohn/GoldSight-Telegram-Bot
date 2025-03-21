@@ -4,6 +4,7 @@ import os
 import sys
 import traceback
 import logging
+import fcntl  # For file locking
 from aiogram import Bot, Dispatcher, types
 from aiogram.types import Message
 from aiogram.filters import Command
@@ -19,6 +20,16 @@ def log_print(*args, **kwargs):
     logger.info(" ".join(map(str, args)))
 
 log_print("Starting main.py...")
+
+# File lock to prevent multiple instances
+LOCK_FILE = "/tmp/goldsight_bot.lock"
+lock_fd = open(LOCK_FILE, 'w')
+try:
+    fcntl.flock(lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    log_print("Acquired lock—only one instance running.")
+except IOError:
+    log_print("Another instance is already running! Exiting.")
+    sys.exit(1)
 
 # Load env vars
 load_dotenv()
@@ -103,26 +114,7 @@ async def handle_message(message: Message):
         await message.reply("Choose your VIP plan:", reply_markup=keyboard)
 
     elif text.startswith("/terms"):
-        await message.reply("TERMS & CONDITIONS\n1. Past results don’t guarantee future gains.\n2. No refunds after VIP access.\n3. No disputes or chargebacks, you’ll be banned forever.\n4. Payment issues?  message @GoldSightSupport.\n5. Subscriptions aren’t automatic—renew manually when expired.\n6. use @Goldsighthelpbot incase of any issues.\n7. We can contact you anytime about your subscription.\n8. Read the pinned message in the VIP channel once in.\n\nPRIVACY POLICY\nWe don’t share your info with third parties. You might get forex info from us after payment.\n\nREFUND POLICY\nNo refunds after joining the channel.")
-
-    # Commented out /signal command
-    # elif text.startswith("/signal"):
-    #     try:
-    #         admins = [admin.user.id for admin in await message.chat.get_administrators()]
-    #     except Exception as e:
-    #         log_print(f"Failed to fetch admins: {e}")
-    #         admins = [ADMIN_ID]
-    #     if user_id == ADMIN_ID or user_id in admins:
-    #         signal = text.split(maxsplit=1)[1] if len(text.split()) > 1 else None
-    #         if not signal:
-    #             await message.reply("Use: /signal <text>")
-    #             return
-    #         await main_bot.send_message(VIP_CHANNEL, f"📈 Signal: {signal}")
-    #         log_print(f"Signal '{signal}' sent to {VIP_CHANNEL}")
-    #         await message.reply("Signal sent!")
-    #     else:
-    #         log_print(f"User {user_id} not authorized")
-    #         await message.reply("Admins only!")
+        await message.reply("TERMS & CONDITIONS\n1. Past results don’t guarantee future gains.\n2. No refunds after VIP access.\n3. No disputes or chargebacks, you’ll be banned forever.\n4. Payment issues? message @GoldSightSupport.\n5. Subscriptions aren’t automatic—renew manually when expired.\n6. use @Goldsighthelpbot incase of any issues.\n7. We can contact you anytime about your subscription.\n8. Read the pinned message in the VIP channel once in.\n\nPRIVACY POLICY\nWe don’t share your info with third parties. You might get forex info from us after payment.\n\nREFUND POLICY\nNo refunds after joining the channel.")
 
     elif user_id in user_states and user_states[user_id]["state"] == SubscribeState.PROOF:
         if message.photo or message.text:
@@ -168,39 +160,6 @@ async def handle_help(message: Message):
         await message.reply("Try /faq or hit @GoldSightSupport!")
         await help_bot.send_message(ADMIN_ID, f"Help request from {message.from_user.id}: {text}")
 
-# Commented out auto signals function
-# async def fetch_auto_signals():
-#     max_retries = 3
-#     last_signal = "XAUUSD Latest: N/A (Fallback)"
-#     while True:
-#         for attempt in range(max_retries):
-#             try:
-#                 url = f"https://www.alphavantage.co/query?function=FX_DAILY&from_symbol=XAU&to_symbol=USD&apikey={ALPHA_VANTAGE_KEY}"
-#                 log_print(f"Fetching signal from: {url}")
-#                 response = requests.get(url, timeout=10)
-#                 response.raise_for_status()
-#                 data = response.json()
-#                 log_print(f"Alpha Vantage response: {data}")
-#                 if "Time Series FX (Daily)" in data and data["Time Series FX (Daily)"]:
-#                     latest_date = max(data["Time Series FX (Daily)"].keys())
-#                     price = data["Time Series FX (Daily)"][latest_date]["4. close"]
-#                     signal = f"XAUUSD Latest: {price} (Auto)"
-#                     await main_bot.send_message(VIP_CHANNEL, f"📈 {signal}")
-#                     last_signal = signal
-#                     log_print(f"Signal '{signal}' sent to {VIP_CHANNEL}")
-#                     break
-#                 else:
-#                     log_print("No valid time series data from Alpha Vantage!")
-#                     if "Information" in data and "rate limit" in data["Information"]:
-#                         log_print("Rate limit hit, using fallback signal.")
-#                         await main_bot.send_message(VIP_CHANNEL, f"📈 {last_signal}")
-#                     break
-#             except Exception as e:
-#                 log_print(f"Auto signal error (attempt {attempt + 1}): {e}")
-#                 if attempt == max_retries - 1:
-#                     await main_bot.send_message(VIP_CHANNEL, f"📈 {last_signal}")
-#         await asyncio.sleep(300)
-
 # Startup and Shutdown
 async def on_startup():
     log_print("Starting up bots...")
@@ -212,6 +171,10 @@ async def on_shutdown():
     log_print("Main bot session closed.")
     await help_bot.session.close()
     log_print("Help bot session closed.")
+    # Release the lock on shutdown
+    fcntl.flock(lock_fd, fcntl.LOCK_UN)
+    lock_fd.close()
+    log_print("Lock released.")
 
 async def main():
     log_print("Entering main()...")
