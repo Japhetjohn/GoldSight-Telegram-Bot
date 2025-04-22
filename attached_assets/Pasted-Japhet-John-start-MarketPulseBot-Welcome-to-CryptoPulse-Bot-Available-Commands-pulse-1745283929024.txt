@@ -1,0 +1,174 @@
+Japhet John:
+/start
+
+MarketPulseBot:
+🚀 Welcome to CryptoPulse Bot! 🚀
+
+Available Commands:
+• /pulse <wallet_address> - Get wallet analysis
+• /whale <address> - Whale activity analysis
+• /wallet <address> - Full wallet analysis
+• /holdings <address> - Token holdings
+• /transfers <address> - Recent transfers
+• /alert <token> <condition> - Set volume alerts
+• /history <token> - Past prices
+• /volume <token> - Token volume info
+• /help - Show this message
+
+Example: /pulse 5eXhL2f2...
+
+Please use: /pulse <wallet_address>
+
+Japhet John:
+/pulse
+
+MarketPulseBot:
+Please use: /pulse <wallet_address>
+
+Japhet John:
+/pulse
+
+MarketPulseBot:
+Please use: /pulse <wallet_address>
+
+Japhet John:
+/pulse
+
+MarketPulseBot:
+Please use: /pulse <wallet_address>
+
+Japhet John:
+/ pulse DVDXQgzcsYU9BthFXWyAMvDxjr8LMiHfLCUnhUGQrMAa
+
+/pulse
+
+MarketPulseBot:
+Please use: /pulse <wallet_address>
+
+Japhet John:
+/ pulse DVDXQgzcsYU9BthFXWyAMvDxjr8LMiHfLCUnhUGQrMAa
+
+/wallet / pulse DVDXQgzcsYU9BthFXWyAMvDxjr8LMiHfLCUnhUGQrMAa
+
+MarketPulseBot:
+❌ Invalid Solana wallet address format.
+
+Japhet John:
+/wallet DVDXQgzcsYU9BthFXWyAMvDxjr8LMiHfLCUnhUGQrMAa
+
+MarketPulseBot:
+📊 Wallet Pulse Report for DVDX...rMAa
+
+🏆 Momentum Score: 0/100
+
+💰 Key Holdings:
+Unable to fetch holdings
+
+🔄 Recent Activity:
+Unable to fetch transfers
+
+View more at: https://alphavybe.com/address/DVDXQgzcsYU9BthFXWyAMvDxjr8LMiHfLCUnhUGQrMAa
+
+Japhet John:
+/whale DVDXQgzcsYU9BthFXWyAMvDxjr8LMiHfLCUnhUGQrMAa
+
+MarketPulseBot:
+Error analyzing whale activity: string indices must be integers
+
+Japhet John:
+/whale DVDXQgzcsYU9BthFXWyAMvDxjr8LMiHfLCUnhUGQrMAa
+
+MarketPulseBot:
+🐋 Whale Analysis for DVDX...rMAa
+
+Portfolio Value: $0.00
+Whale Status: ⚪ Not a whale
+
+No recent high-impact moves detected.
+
+Japhet John:
+/wallet DVDXQgzcsYU9BthFXWyAMvDxjr8LMiHfLCUnhUGQrMAa
+
+MarketPulseBot:
+📊 Wallet Pulse Report for DVDX...rMAa
+
+🏆 Momentum Score: 0/100
+
+💰 Key Holdings:
+Unable to fetch holdings - processing error
+
+🔄 Recent Activity:
+Unable to fetch transfers - processing error
+
+View more at: https://alphavybe.com/address/DVDXQgzcsYU9BthFXWyAMvDxjr8LMiHfLCUnhUGQrMAa
+
+Japhet John:
+/whale DVDXQgzcsYU9BthFXWyAMvDxjr8LMiHfLCUnhUGQrMAa
+
+MarketPulseBot:
+🐋 Whale Analysis for DVDX...rMAa
+
+Portfolio Value: $0.00
+Whale Status: ⚪ Not a whale
+
+No recent high-impact moves detected.
+
+Japhet John:
+/holdings
+DVDXQgzcsYU9BthFXWyAMvDxjr8LMiHfLCUnhUGQrMAa
+
+MarketPulseBot:
+💰 Holdings for DVDX...rMAa:
+
+Unable to fetch holdings - processing error
+
+Japhet John:
+/pulse DVDXQgzcsYU9BthFXWyAMvDxjr8LMiHfLCUnhUGQrMAa
+
+MarketPulseBot:
+📊 Wallet Pulse Report for DVDX...rMAa
+
+🏆 Momentum Score: 0/100
+
+💰 Key Holdings:
+Unable to fetch holdings - processing error
+
+🔄 Recent Activity:
+Unable to fetch transfers - processing error
+
+View more at: https://alphavybe.com/address/DVDXQgzcsYU9BthFXWyAMvDxjr8LMiHfLCUnhUGQrMAa
+
+Japhet John:
+/transfers  DVDXQgzcsYU9BthFXWyAMvDxjr8LMiHfLCUnhUGQrMAa
+
+MarketPulseBot:
+🔄 Recent transfers for DVDX...rMAa:
+
+Unable to fetch transfers - processing error
+
+Japhet John:
+/holdings
+DVDXQgzcsYU9BthFXWyAMvDxjr8LMiHfLCUnhUGQrMAa
+
+MarketPulseBot:
+💰 Holdings for DVDX...rMAa:
+
+Unable to fetch holdings - processing error
+
+Japhet John:
+/holdings
+DVDXQgzcsYU9BthFXWyAMvDxjr8LMiHfLCUnhUGQrMAa
+
+MarketPulseBot:
+💰 Holdings for DVDX...rMAa:
+
+Unable to fetch holdings - processing error
+
+Japhet John:
+/holdings
+DVDXQgzcsYU9BthFXWyAMvDxjr8LMiHfLCUnhUGQrMAa
+
+MarketPulseBot:
+💰 Holdings for DVDX...rMAa:
+
+Unable to fetch holdings - processing error
