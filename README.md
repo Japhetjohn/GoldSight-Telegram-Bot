@@ -14,12 +14,12 @@ Professional Telegram trading bot providing VIP trading signals and market analy
 ## Subscription Plans 💎
 
 - Bi-weekly: $30
-  - 2 weeks full access
+  - 1 weeks full access
   - All trading signals
   - Priority support
 
 - Monthly: $50
-  - 4 weeks full access
+  - 3 weeks full access
   - All trading signals
   - Priority support
   - Early market alerts
