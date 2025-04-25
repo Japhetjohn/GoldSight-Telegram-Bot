@@ -5,11 +5,12 @@ import traceback
 import logging
 from collections import defaultdict
 from datetime import datetime
-from aiogram import Bot, Dispatcher, types
-from aiogram.types import Message
+from aiogram import Bot, Dispatcher, Router, types
+from aiogram.types import Message, CallbackQuery
 from aiogram.filters import Command
 from aiohttp import web
 from dotenv import load_dotenv
+from aiogram.client.bot import DefaultBotProperties
 
 # Setup logging
 logging.basicConfig(level=logging.INFO,
@@ -41,14 +42,14 @@ def check_rate_limit(user_id):
     return user_data["count"] <= MAX_REQUESTS
 
 
-# Load env vars and validate
+# Load environment variables and validate
 load_dotenv()
 required_vars = [
     "MAIN_BOT_TOKEN", "HELP_BOT_TOKEN", "ADMIN_ID", "VIP_CHANNEL_ID"
 ]
 missing_vars = [var for var in required_vars if not os.getenv(var)]
 if missing_vars:
-    log_print(f"Error: Missing env vars: {missing_vars}")
+    log_print(f"Error: Missing environment variables: {missing_vars}")
     sys.exit(1)
 
 API_TOKEN = os.getenv("MAIN_BOT_TOKEN")
@@ -58,14 +59,22 @@ VIP_CHANNEL = int(os.getenv("VIP_CHANNEL_ID"))
 WEBAPP_PORT = int(os.environ.get("PORT", 5000))
 
 # Initialize bots
-main_bot = Bot(token=API_TOKEN, parse_mode="HTML")
-main_dp = Dispatcher(main_bot)
-help_bot = Bot(token=HELP_BOT_TOKEN, parse_mode="HTML")
-help_dp = Dispatcher(help_bot)
+main_bot = Bot(token=API_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
+help_bot = Bot(token=HELP_BOT_TOKEN, default=DefaultBotProperties(parse_mode="HTML"))
+
+# Initialize dispatchers and routers
+main_dp = Dispatcher()
+help_dp = Dispatcher()
+main_router = Router()
+help_router = Router()
+
+# Register routers with dispatchers
+main_dp.include_router(main_router)
+help_dp.include_router(help_router)
 
 
 # Main Bot Handlers
-@main_dp.message(Command("start"))
+@main_router.message(Command("start"))
 async def cmd_start(message: Message):
     if not check_rate_limit(message.from_user.id):
         return await message.reply("Too many requests. Please try again later.")
@@ -84,36 +93,7 @@ async def cmd_start(message: Message):
     )
 
 
-@main_dp.message(Command("subscribe"))
-async def cmd_subscribe(message: Message):
-    if not check_rate_limit(message.from_user.id):
-        return await message.reply("Too many requests. Please try again later."
-                                   )
-
-    from database import get_user
-    user = get_user(message.from_user.id)
-    if user and user[4] == 1:  # Check VIP status
-        sub_end = datetime.fromisoformat(user[1])
-        days_left = (sub_end - datetime.now()).days
-        await message.reply(
-            f"🌟 You're a VIP member!\nSubscription ends in {days_left} days.")
-        return
-
-    keyboard = types.InlineKeyboardMarkup(
-        inline_keyboard=[[
-            types.InlineKeyboardButton(text="Weekly ($30)",
-                                       callback_data="sub_weekly")
-        ],
-                         [
-                             types.InlineKeyboardButton(
-                                 text="Monthly ($50)",
-                                 callback_data="sub_monthly")
-                         ]])
-    await message.reply(
-        "📊 GoldSight VIP Plans:\n\n🔹 Weekly: $30\n- 1 week access\n- All signals\n- Priority support\n\n🔸 Monthly: $50\n- 1 month access\n- All signals\n- Priority support\n- Early alerts\n\nSelect your plan:",
-        reply_markup=keyboard)
-
-@main_dp.message(Command("subscribe"))
+@main_router.message(Command("subscribe"))
 async def cmd_subscribe(message: Message):
     if not check_rate_limit(message.from_user.id):
         return await message.reply("Too many requests. Please try again later.")
@@ -143,8 +123,8 @@ async def cmd_subscribe(message: Message):
     )
 
 
-@main_dp.callback_query_handler(lambda c: c.data in ["sub_weekly", "sub_monthly"])
-async def handle_subscription_callback(callback_query: types.CallbackQuery):
+@main_router.callback_query(lambda c: c.data in ["sub_weekly", "sub_monthly"])
+async def handle_subscription_callback(callback_query: CallbackQuery):
     plan = "Weekly ($30)" if callback_query.data == "sub_weekly" else "Monthly ($50)"
     payment_addresses = (
         "💳 **Payment Addresses**:\n\n"
@@ -160,29 +140,22 @@ async def handle_subscription_callback(callback_query: types.CallbackQuery):
         parse_mode="Markdown"
     )
     await callback_query.answer()  # Acknowledge the callback query
-@main_dp.message(Command("referral"))
+
+
+@main_router.message(Command("referral"))
 async def cmd_referral(message: Message):
     if not check_rate_limit(message.from_user.id):
-        return await message.reply("Too many requests. Please try again later."
-                                   )
+        return await message.reply("Too many requests. Please try again later.")
 
     from database import get_user
     user = get_user(message.from_user.id)
     if user:
         await message.reply(
-            f"Your referral code: {user[2]}\nShare to earn 10% commission!")
+            f"Your referral code: {user[2]}\nShare to earn 10% commission!"
+        )
 
 
-@main_dp.message(Command("terms"))
-async def cmd_terms(message: Message):
-    if not check_rate_limit(message.from_user.id):
-        return await message.reply("Too many requests. Please try again later."
-                                   )
-
-    await message.reply(
-        "Terms & Conditions:\n1. No refunds after vip access\n2. Signals are educational\n3. Trade responsibly\n4. payment issues? contact @goldsightsupport\n5. manually renew subscriptions\n6. check pinned message in vip channel.\n\nPRIVACY POLICY\No third-party sharing.\nForex info post-payment.\n\n"
-    )
-@main_dp.message(Command("terms"))
+@main_router.message(Command("terms"))
 async def cmd_terms(message: Message):
     if not check_rate_limit(message.from_user.id):
         return await message.reply("Too many requests. Please try again later.")
@@ -205,71 +178,67 @@ async def cmd_terms(message: Message):
 
     await message.reply(terms_and_conditions, parse_mode="Markdown")
 
-@main_dp.message(Command("approve"))
-async def cmd_approve(message: Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    args = message.text.split()
-    if len(args) != 3:
-        await message.reply("Usage: /approve <user_id> <biweekly/monthly>")
-        return
-    from database import approve_vip
-    user_id = int(args[1])
-    referrer, commission = approve_vip(user_id, args[2])
-    await main_bot.send_message(user_id, "🎉 VIP access granted!")
-    if referrer:
-        await main_bot.send_message(int(referrer),
-                                    f"💰 Commission earned: ${commission}")
 
-
-# Help Bot Handlers
-@help_dp.message()
-async def handle_help(message: Message):
+@main_router.message()
+async def handle_payment_proof(message: Message):
     if not check_rate_limit(message.from_user.id):
         return await message.reply("Too many requests. Please try again later.")
 
-    text = message.text.lower()
-    if text == "/start":
-        await message.reply(
-            "🌟 **Welcome to GoldSight Help!** 🌟\n\n"
-            "GoldSight is here to provide you with premium trading signals and excellent support. Here's how we can assist you:\n\n"
-            "🔹 **Subscribe to VIP**: Gain access to exclusive trading signals. Use the /subscribe command.\n"
-            "🔹 **Frequently Asked Questions (FAQ)**: Get answers to common questions by typing /faq.\n"
-            "🔹 **Support**: Need help? Reach out to our support team at @GoldSightSupport.\n\n"
-            "We’re here to help you make the most of your trading journey. Let us know how we can assist you!"
+    if message.photo:
+        await message.reply("📤 Payment proof received! Our team will verify it shortly.")
+        await main_bot.send_photo(
+            ADMIN_ID,
+            photo=message.photo[-1].file_id,
+            caption=f"Payment proof from user {message.from_user.id} (@{message.from_user.username or 'No Username'})"
         )
-    elif text == "/faq":
-        await message.reply(
-            "📖 **FAQ**:\n\n"
-            "🔹 **How to join VIP?** Use the /subscribe command to view our plans.\n"
-            "🔹 **What are the costs?** $30 bi-weekly or $50 monthly.\n"
-            "🔹 **Need support?** Contact us at @GoldSightSupport.\n\n"
-            "For more information, feel free to ask!"
+    elif message.text:
+        await message.reply("📤 Payment proof received! Our team will verify it shortly.")
+        await main_bot.send_message(
+            ADMIN_ID,
+            f"Payment proof from user {message.from_user.id} (@{message.from_user.username or 'No Username'}):\n\n{message.text}"
         )
     else:
-        await message.reply(
-            "❓ **Need help?**\n\n"
-            "Try using the /faq command for answers to common questions, or contact our support team at @GoldSightSupport for personalized assistance."
-        )
-        await help_bot.send_message(
-            ADMIN_ID, f"Help request from {message.from_user.id}: {text}"
-        )@help_dp.message()
-async def handle_help(message: Message):
-    if not check_rate_limit(message.from_user.id):
-        return await message.reply("Too many requests. Please try again later."
-                                   )
+        await message.reply("❌ Please send a valid payment proof (screenshot or transaction hash).")
 
-    text = message.text.lower()
-    if text == "/start":
-        await message.reply("Welcome to GoldSight Help! How can I assist you?")
-    elif text == "/faq":
-        await message.reply(
-            "FAQ:\n- Join? /subscribe\n- Cost? $30 bi-weekly or $50 monthly\n- Support? @GoldSightSupport"
-        )
-    else:
-        await message.reply("Try /faq or contact @GoldSightSupport!")
-        await help_bot.send_message(
-            ADMIN_ID, f"Help request from {message.from_user.id}: {text}")
+
+# Help Bot Handlers
+@help_router.message(Command("start"))
+async def help_start(message: Message):
+    keyboard = types.InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                types.InlineKeyboardButton(text="Subscribe", callback_data="help_subscribe")
+            ]
+        ]
+    )
+    await message.reply(
+        "🌟 **Welcome to GoldSight Help!** 🌟\n\n"
+        "GoldSight is here to provide you with premium trading signals and excellent support. Here's how we can assist you:\n\n"
+        "🔹 **Subscribe to VIP**: Gain access to exclusive trading signals.\n"
+        "🔹 **Frequently Asked Questions (FAQ)**: Get answers to common questions by typing /faq.\n"
+        "🔹 **Support**: Need help? Reach out to our support team at @GoldSightSupport.\n\n"
+        "We’re here to help you make the most of your trading journey. Let us know how we can assist you!",
+        reply_markup=keyboard
+    )
+
+
+@help_router.callback_query(lambda c: c.data == "help_subscribe")
+async def help_subscribe_callback(callback_query: CallbackQuery):
+    await callback_query.message.reply(
+        "To subscribe, please use the /subscribe command in the main bot."
+    )
+    await callback_query.answer()
+
+
+@help_router.message(Command("faq"))
+async def help_faq(message: Message):
+    await message.reply(
+        "📖 **FAQ**:\n\n"
+        "🔹 **How to join VIP?** Use the /subscribe command to view our plans.\n"
+        "🔹 **What are the costs?** $30 bi-weekly or $50 monthly.\n"
+        "🔹 **Need support?** Contact us at @GoldSightSupport.\n\n"
+        "For more information, feel free to ask!"
+    )
 
 
 # Server setup
