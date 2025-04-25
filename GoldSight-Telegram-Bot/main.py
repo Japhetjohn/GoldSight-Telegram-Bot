@@ -75,7 +75,7 @@ help_dp.include_router(help_router)
 # Create custom reply keyboards
 main_keyboard = ReplyKeyboardMarkup(
     keyboard=[
-        [KeyboardButton(text="/subscribe"), KeyboardButton(text="/referral")],
+        [KeyboardButton(text="/referral")],
         [KeyboardButton(text="/terms"),]
     ],
     resize_keyboard=True
