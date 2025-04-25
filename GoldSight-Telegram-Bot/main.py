@@ -6,7 +6,7 @@ import logging
 from collections import defaultdict
 from datetime import datetime
 from aiogram import Bot, Dispatcher, Router, types
-from aiogram.types import Message, CallbackQuery
+from aiogram.types import Message, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.filters import Command
 from aiohttp import web
 from dotenv import load_dotenv
@@ -72,6 +72,23 @@ help_router = Router()
 main_dp.include_router(main_router)
 help_dp.include_router(help_router)
 
+# Create custom reply keyboards
+main_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="/subscribe"), KeyboardButton(text="/referral")],
+        [KeyboardButton(text="/terms"),]
+    ],
+    resize_keyboard=True
+)
+
+help_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="/faq"), KeyboardButton(text="/subscribe")],
+        [KeyboardButton(text="/start")]
+    ],
+    resize_keyboard=True
+)
+
 
 # Main Bot Handlers
 @main_router.message(Command("start"))
@@ -89,7 +106,8 @@ async def cmd_start(message: Message):
         f"🔹 Priority support\n"
         f"🔹 Early alerts for VIP members\n\n"
         f"Your referral code: {ref_code}\n"
-        f"Use /subscribe to explore our VIP plans and unlock exclusive benefits!"
+        f"Use the buttons below to explore our features!",
+        reply_markup=main_keyboard
     )
 
 
@@ -179,55 +197,18 @@ async def cmd_terms(message: Message):
     await message.reply(terms_and_conditions, parse_mode="Markdown")
 
 
-@main_router.message()
-async def handle_payment_proof(message: Message):
-    if not check_rate_limit(message.from_user.id):
-        return await message.reply("Too many requests. Please try again later.")
-
-    if message.photo:
-        await message.reply("📤 Payment proof received! Our team will verify it shortly.")
-        await main_bot.send_photo(
-            ADMIN_ID,
-            photo=message.photo[-1].file_id,
-            caption=f"Payment proof from user {message.from_user.id} (@{message.from_user.username or 'No Username'})"
-        )
-    elif message.text:
-        await message.reply("📤 Payment proof received! Our team will verify it shortly.")
-        await main_bot.send_message(
-            ADMIN_ID,
-            f"Payment proof from user {message.from_user.id} (@{message.from_user.username or 'No Username'}):\n\n{message.text}"
-        )
-    else:
-        await message.reply("❌ Please send a valid payment proof (screenshot or transaction hash).")
-
-
 # Help Bot Handlers
 @help_router.message(Command("start"))
 async def help_start(message: Message):
-    keyboard = types.InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                types.InlineKeyboardButton(text="Subscribe", callback_data="help_subscribe")
-            ]
-        ]
-    )
     await message.reply(
         "🌟 **Welcome to GoldSight Help!** 🌟\n\n"
         "GoldSight is here to provide you with premium trading signals and excellent support. Here's how we can assist you:\n\n"
         "🔹 **Subscribe to VIP**: Gain access to exclusive trading signals.\n"
         "🔹 **Frequently Asked Questions (FAQ)**: Get answers to common questions by typing /faq.\n"
         "🔹 **Support**: Need help? Reach out to our support team at @GoldSightSupport.\n\n"
-        "We’re here to help you make the most of your trading journey. Let us know how we can assist you!",
-        reply_markup=keyboard
+        "Use the buttons below to navigate!",
+        reply_markup=help_keyboard
     )
-
-
-@help_router.callback_query(lambda c: c.data == "help_subscribe")
-async def help_subscribe_callback(callback_query: CallbackQuery):
-    await callback_query.message.reply(
-        "To subscribe, please use the /subscribe command in the main bot."
-    )
-    await callback_query.answer()
 
 
 @help_router.message(Command("faq"))
